@@ -21,7 +21,7 @@ SIM_OFFSET_Y = (SIM_HEIGHT - (GRID_SIZE * CELL_SIZE)) // 2
 # Defaults
 DEFAULT_POPULATION = 1000
 DEFAULT_GENOME_LEN = 12
-STEPS_PER_GEN = 300
+DEFAULT_STEPS_PER_GEN = 300
 
 # Colors
 COLOR_BG = (20, 20, 20)
@@ -42,6 +42,7 @@ PAUSED = False
 # Params controlled by UI
 POPULATION_SIZE = DEFAULT_POPULATION
 GENOME_LENGTH = DEFAULT_GENOME_LEN
+STEPS_PER_GEN = DEFAULT_STEPS_PER_GEN
 BRUSH_SIZE = 1
 
 SELECTED_AGENT = None
@@ -55,6 +56,7 @@ SENSOR_NAMES = {
     0: "LocX", 1: "LocY", 2: "Rnd", 
     3: "LmvX", 4: "LmvY", 5: "Osc"
 }
+# --- Labels ---
 ACTION_NAMES = {
     0: "MvX", 1: "MvY", 2: "MvFwd", 
     3: "ColR", 4: "ColG", 5: "ColB"
@@ -176,11 +178,12 @@ class Slider:
         self.value = val
         
         # Link to globals
-        global MUTATION_RATE, BRUSH_SIZE, POPULATION_SIZE, GENOME_LENGTH
+        global MUTATION_RATE, BRUSH_SIZE, POPULATION_SIZE, GENOME_LENGTH, STEPS_PER_GEN
         if "Mutation" in self.label: MUTATION_RATE = self.value
         elif "Brush" in self.label: BRUSH_SIZE = int(self.value)
         elif "Pop" in self.label: POPULATION_SIZE = int(self.value)
         elif "Genome" in self.label: GENOME_LENGTH = int(self.value)
+        elif "Steps/Gen" in self.label: STEPS_PER_GEN = int(self.value)
 
 # --- Visualization ---
 
@@ -252,7 +255,7 @@ def draw_brain(screen, agent, rect, font):
 
 def main():
     global SIM_STATE, TOOL_MODE, SELECTED_AGENT, GENERATION, STEP, AGENTS, GRID, PAUSED
-    global BRUSH_SIZE, POPULATION_SIZE, GENOME_LENGTH, MUTATION_RATE
+    global BRUSH_SIZE, POPULATION_SIZE, GENOME_LENGTH, MUTATION_RATE, STEPS_PER_GEN
 
     pygame.init()
     screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
@@ -297,14 +300,14 @@ def main():
     btn_tool_era = Button(230, 70, 60, 30, "Erase", lambda: set_tool(3))
     
     # Sliders
-    # Adjusted Y positions to fit everything
-    slider_mut = Slider(20, 140, 210, 15, 0.0, 0.1, MUTATION_RATE, "Mutation Rate")
-    slider_brush = Slider(20, 190, 210, 15, 1, 5, BRUSH_SIZE, "Brush Size", int_mode=True)
-    slider_pop = Slider(20, 240, 210, 15, 100, 5000, POPULATION_SIZE, "Pop Size", int_mode=True)
-    slider_gene = Slider(20, 290, 210, 15, 4, 32, GENOME_LENGTH, "Genome Len", int_mode=True)
+    slider_mut = Slider(20, 130, 210, 12, 0.0, 0.1, MUTATION_RATE, "Mutation Rate")
+    slider_brush = Slider(20, 170, 210, 12, 1, 5, BRUSH_SIZE, "Brush Size", int_mode=True)
+    slider_pop = Slider(20, 210, 210, 12, 100, 5000, POPULATION_SIZE, "Pop Size", int_mode=True)
+    slider_gene = Slider(20, 250, 210, 12, 4, 32, GENOME_LENGTH, "Genome Len", int_mode=True)
+    slider_steps = Slider(20, 290, 210, 12, 100, 2000, STEPS_PER_GEN, "Steps/Gen", int_mode=True)
     
     ui_elements = [btn_start, btn_pause, btn_clear, btn_tool_sel, btn_tool_bar, btn_tool_saf, btn_tool_era, 
-                   slider_mut, slider_brush, slider_pop, slider_gene]
+                   slider_mut, slider_brush, slider_pop, slider_gene, slider_steps]
 
     running = True
     mouse_down = False
@@ -339,7 +342,6 @@ def main():
                 # Brush Logic
                 if SIM_STATE == "EDIT" and TOOL_MODE != 0:
                     r = BRUSH_SIZE - 1
-                    # Iterate square region
                     for bx in range(gx - r, gx + r + 1):
                         for by in range(gy - r, gy + r + 1):
                             if 0 <= bx < GRID_SIZE and 0 <= by < GRID_SIZE:
@@ -351,7 +353,6 @@ def main():
                                     GRID.set(bx, by, 0)
                                     GRID.set_safe(bx, by, False)
                 
-                # Selection logic (Single click, no brush)
                 if TOOL_MODE == 0 and 0 <= gx < GRID_SIZE and 0 <= gy < GRID_SIZE:
                     agent_id = GRID.data[gx][gy]
                     if agent_id > 0:
@@ -399,7 +400,7 @@ def main():
             "L-Click to Draw/Sel"
         ]
         for i, line in enumerate(stats):
-            screen.blit(font.render(line, True, COLOR_TEXT), (20, 320 + i*20))
+            screen.blit(font.render(line, True, COLOR_TEXT), (20, 330 + i*20))
 
         brain_rect = pygame.Rect(10, WINDOW_HEIGHT - 290, PANEL_WIDTH - 20, 280)
         draw_brain(screen, SELECTED_AGENT, brain_rect, small_font)
@@ -410,7 +411,6 @@ def main():
         sim_rect = pygame.Rect(SIM_OFFSET_X, SIM_OFFSET_Y, GRID_SIZE*CELL_SIZE, GRID_SIZE*CELL_SIZE)
         pygame.draw.rect(screen, (0, 0, 0), sim_rect)
         
-        # Draw Zones/Barriers
         for x in range(GRID_SIZE):
             for y in range(GRID_SIZE):
                 if GRID.is_safe_tile(x, y):
@@ -420,7 +420,6 @@ def main():
                     rect = (SIM_OFFSET_X + x * CELL_SIZE, SIM_OFFSET_Y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
                     pygame.draw.rect(screen, COLOR_BARRIER, rect)
 
-        # Draw Agents
         for agent in AGENTS:
             rect = (SIM_OFFSET_X + agent.x * CELL_SIZE, SIM_OFFSET_Y + agent.y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
             pygame.draw.rect(screen, agent.color, rect)
