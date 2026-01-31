@@ -32,10 +32,10 @@ COLOR_UI_BG = (60, 60, 70)
 COLOR_UI_ACTIVE = (100, 100, 150)
 COLOR_UI_SELECTED = (100, 200, 100)
 
-# Global State
-SIM_STATE = "EDIT" # EDIT, RUN
-TOOL_MODE = 0      # 0=Select, 1=Barrier, 2=SafeZone, 3=Eraser
+SIM_STATE = "EDIT" 
+TOOL_MODE = 0      
 MUTATION_RATE = 0.01
+PAUSED = False
 
 SELECTED_AGENT = None
 AGENTS = []
@@ -43,25 +43,30 @@ GRID = bs.Grid(GRID_SIZE)
 GENERATION = 1
 STEP = 0
 
+# --- Labels ---
+SENSOR_NAMES = {
+    0: "LocX", 1: "LocY", 2: "Rnd", 
+    3: "LmvX", 4: "LmvY", 5: "Osc"
+}
+ACTION_NAMES = {
+    0: "MvX", 1: "MvY", 2: "MvFwd", 
+    3: "ColR", 4: "ColG", 5: "ColB"
+}
+
 # --- Helper Logic ---
 
 def spawn_next_generation(agents, grid):
     survivors = [a for a in agents if bs.is_safe(a, grid)]
     num_survivors = len(survivors)
     
-    # Do NOT clear barriers/safezones here. They are permanent level geometry.
-    # Just clear AGENT IDs from data layer (keep barriers -1)
-    
-    # Rebuild Grid data layer: Keep barriers, clear agents
     for x in range(GRID_SIZE):
         for y in range(GRID_SIZE):
             if not grid.is_barrier(x, y):
-                grid.set(x, y, 0) # Clear agent
+                grid.set(x, y, 0)
     
     new_agents = []
     
     if num_survivors == 0:
-        # Extinction - Respawn random
         for i in range(POPULATION_SIZE):
             loc = grid.find_empty_location()
             if loc:
@@ -69,7 +74,6 @@ def spawn_next_generation(agents, grid):
                 new_agents.append(bs.Agent(x, y, agent_id=i+1))
                 grid.set(x, y, i+1)
     else:
-        # Reproduction
         for i in range(POPULATION_SIZE):
             p1 = random.choice(survivors)
             p2 = random.choice(survivors)
@@ -87,7 +91,6 @@ def spawn_next_generation(agents, grid):
 def populate_world():
     global AGENTS
     AGENTS = []
-    # Clear any existing agents from grid first
     for x in range(GRID_SIZE):
         for y in range(GRID_SIZE):
             if not GRID.is_barrier(x, y):
@@ -176,27 +179,40 @@ def draw_brain(screen, agent, rect, font):
         return
 
     node_radius = 5
-    input_x = rect.left + 30
-    output_x = rect.right - 30
+    # Shift X positions to make room for text
+    input_x = rect.left + 50  
+    output_x = rect.right - 50
     hidden_x = rect.centerx
+    
     y_spacing = rect.height / (max(bs.NUM_SENSORS, bs.NUM_ACTIONS) + 1)
     
     node_positions = {}
     
+    # Inputs (Green)
     for i in range(bs.NUM_SENSORS):
         y = rect.top + (i + 1) * y_spacing
         node_positions[(1, i)] = (input_x, y)
         pygame.draw.circle(screen, (0, 200, 0), (input_x, y), node_radius)
-        lbl = font.render(str(i), True, (150, 255, 150))
-        screen.blit(lbl, (input_x - 15, y - 5))
+        
+        # Label (Left of node)
+        name = SENSOR_NAMES.get(i, str(i))
+        lbl = font.render(name, True, (150, 255, 150))
+        lbl_rect = lbl.get_rect(midright=(input_x - 10, y))
+        screen.blit(lbl, lbl_rect)
 
+    # Outputs (Red)
     for i in range(bs.NUM_ACTIONS):
         y = rect.top + (i + 1) * y_spacing
         node_positions[('A', i)] = (output_x, y)
         pygame.draw.circle(screen, (200, 0, 0), (output_x, y), node_radius)
-        lbl = font.render(str(i), True, (255, 150, 150))
-        screen.blit(lbl, (output_x + 8, y - 5))
+        
+        # Label (Right of node)
+        name = ACTION_NAMES.get(i, str(i))
+        lbl = font.render(name, True, (255, 150, 150))
+        lbl_rect = lbl.get_rect(midleft=(output_x + 10, y))
+        screen.blit(lbl, lbl_rect)
 
+    # Hidden (Gray)
     center_y = rect.centery
     radius = min(rect.width, rect.height) / 4
     for i in range(bs.MAX_NEURONS):
@@ -208,6 +224,7 @@ def draw_brain(screen, agent, rect, font):
         pygame.draw.circle(screen, (c_val, c_val, c_val), (nx, ny), node_radius)
         pygame.draw.circle(screen, (100, 100, 100), (nx, ny), node_radius, 1)
 
+    # Connections
     for g in agent.genome:
         start_key = ('S' if g.source_type == 1 else 'N', g.source_num % (bs.NUM_SENSORS if g.source_type==1 else bs.MAX_NEURONS))
         end_key = ('A' if g.sink_type == 1 else 'N', g.sink_num % (bs.NUM_ACTIONS if g.sink_type==1 else bs.MAX_NEURONS))
@@ -221,7 +238,7 @@ def draw_brain(screen, agent, rect, font):
 
 
 def main():
-    global SIM_STATE, TOOL_MODE, SELECTED_AGENT, GENERATION, STEP, AGENTS, GRID
+    global SIM_STATE, TOOL_MODE, SELECTED_AGENT, GENERATION, STEP, AGENTS, GRID, PAUSED
 
     pygame.init()
     screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
@@ -230,7 +247,6 @@ def main():
     font = pygame.font.SysFont("monospace", 14)
     small_font = pygame.font.SysFont("monospace", 10)
 
-    # Functions
     def start_stop_sim():
         global SIM_STATE, GENERATION, STEP
         if SIM_STATE == "EDIT":
@@ -240,12 +256,12 @@ def main():
             STEP = 0
         else:
             SIM_STATE = "EDIT"
-            # Return to empty editor? Or keep agents paused?
-            # Requirement says "Draw then start". So stopping usually implies resetting or pausing.
-            # Let's make it a Stop/Reset to Editor.
-            # Clear agents to allow editing again without clutter.
             global AGENTS
             AGENTS = []
+
+    def toggle_pause():
+        global PAUSED
+        PAUSED = not PAUSED
             
     def set_tool(mode):
         global TOOL_MODE
@@ -253,15 +269,14 @@ def main():
         
     def clear_grid():
         global GRID
-        GRID = bs.Grid(GRID_SIZE) # New empty grid
+        GRID = bs.Grid(GRID_SIZE)
         global AGENTS
         AGENTS = []
 
-    # UI Setup
-    btn_start = Button(20, 20, 120, 30, "Start/Stop", start_stop_sim)
-    btn_clear = Button(150, 20, 80, 30, "Clear", clear_grid)
+    btn_start = Button(20, 20, 90, 30, "Start", start_stop_sim)
+    btn_pause = Button(120, 20, 60, 30, "Pause", toggle_pause)
+    btn_clear = Button(190, 20, 60, 30, "Clear", clear_grid)
     
-    # Tools
     btn_tool_sel = Button(20, 80, 60, 30, "Sel", lambda: set_tool(0))
     btn_tool_bar = Button(90, 80, 60, 30, "Wall", lambda: set_tool(1))
     btn_tool_saf = Button(160, 80, 60, 30, "Zone", lambda: set_tool(2))
@@ -269,19 +284,19 @@ def main():
     
     slider_mut = Slider(20, 150, 210, 20, 0.0, 0.1, MUTATION_RATE, "Mutation Rate")
     
-    ui_elements = [btn_start, btn_clear, btn_tool_sel, btn_tool_bar, btn_tool_saf, btn_tool_era, slider_mut]
+    ui_elements = [btn_start, btn_pause, btn_clear, btn_tool_sel, btn_tool_bar, btn_tool_saf, btn_tool_era, slider_mut]
 
     running = True
     mouse_down = False
     
     while running:
-        # Event Handling
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             
-            # Update Button States (Visual toggle)
+            # UI Updates
             btn_start.text = "Stop" if SIM_STATE == "RUN" else "Start"
+            btn_pause.toggled = PAUSED
             btn_tool_sel.toggled = (TOOL_MODE == 0)
             btn_tool_bar.toggled = (TOOL_MODE == 1)
             btn_tool_saf.toggled = (TOOL_MODE == 2)
@@ -295,7 +310,6 @@ def main():
             elif event.type == pygame.MOUSEBUTTONUP:
                 mouse_down = False
 
-        # Mouse Actions (Drawing/Selecting)
         if mouse_down:
             mx, my = pygame.mouse.get_pos()
             if mx > PANEL_WIDTH:
@@ -304,15 +318,14 @@ def main():
                 
                 if 0 <= gx < GRID_SIZE and 0 <= gy < GRID_SIZE:
                     if SIM_STATE == "EDIT":
-                        if TOOL_MODE == 1: # Barrier
+                        if TOOL_MODE == 1:
                             GRID.set(gx, gy, bs.BARRIER)
-                        elif TOOL_MODE == 2: # Safe Zone
+                        elif TOOL_MODE == 2:
                             GRID.set_safe(gx, gy, True)
-                        elif TOOL_MODE == 3: # Eraser
+                        elif TOOL_MODE == 3:
                             GRID.set(gx, gy, 0)
                             GRID.set_safe(gx, gy, False)
                     
-                    # Selection works in both modes
                     if TOOL_MODE == 0:
                         agent_id = GRID.data[gx][gy]
                         if agent_id > 0:
@@ -323,15 +336,13 @@ def main():
                         else:
                             SELECTED_AGENT = None
 
-        # Logic Update
-        if SIM_STATE == "RUN":
+        if SIM_STATE == "RUN" and not PAUSED:
             random.shuffle(AGENTS)
             for agent in AGENTS:
                 dx, dy, _ = agent.think(GRID_SIZE, STEP)
                 if dx != 0 or dy != 0:
                     nx, ny = agent.x + dx, agent.y + dy
                     if 0 <= nx < GRID_SIZE and 0 <= ny < GRID_SIZE:
-                        # Move Logic
                         if GRID.is_empty(nx, ny):
                             GRID.clear(agent.x, agent.y)
                             agent.x, agent.y = nx, ny
@@ -345,10 +356,8 @@ def main():
                 GENERATION += 1
                 SELECTED_AGENT = None
 
-        # Render
         screen.fill(COLOR_BG)
         
-        # Panel
         pygame.draw.rect(screen, COLOR_PANEL, (0, 0, PANEL_WIDTH, WINDOW_HEIGHT))
         pygame.draw.line(screen, (100, 100, 100), (PANEL_WIDTH, 0), (PANEL_WIDTH, WINDOW_HEIGHT))
         
@@ -356,7 +365,7 @@ def main():
             el.draw(screen, font)
             
         stats = [
-            f"State: {SIM_STATE}",
+            f"State: {SIM_STATE} {'(PAUSED)' if PAUSED else ''}",
             f"Gen: {GENERATION}",
             f"Step: {STEP}/{STEPS_PER_GEN}",
             f"Pop: {len(AGENTS)}",
@@ -372,14 +381,9 @@ def main():
             id_txt = font.render(f"Agent ID: {SELECTED_AGENT.id}", True, COLOR_HIGHLIGHT)
             screen.blit(id_txt, (20, WINDOW_HEIGHT - 310))
 
-        # Sim View
         sim_rect = pygame.Rect(SIM_OFFSET_X, SIM_OFFSET_Y, GRID_SIZE*CELL_SIZE, GRID_SIZE*CELL_SIZE)
         pygame.draw.rect(screen, (0, 0, 0), sim_rect)
         
-        # Draw Safe Zones
-        # Optimization: Drawing individual rects is slow.
-        # But we need to see changes in real-time.
-        # Ideally, we'd use a Surface.
         for x in range(GRID_SIZE):
             for y in range(GRID_SIZE):
                 if GRID.is_safe_tile(x, y):
@@ -389,7 +393,6 @@ def main():
                     rect = (SIM_OFFSET_X + x * CELL_SIZE, SIM_OFFSET_Y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
                     pygame.draw.rect(screen, COLOR_BARRIER, rect)
 
-        # Draw Agents
         for agent in AGENTS:
             rect = (SIM_OFFSET_X + agent.x * CELL_SIZE, SIM_OFFSET_Y + agent.y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
             pygame.draw.rect(screen, agent.color, rect)
