@@ -65,9 +65,7 @@ def crossover_genomes(g1, g2):
 class Grid:
     def __init__(self, size):
         self.size = size
-        # data: 0=Empty, -1=Barrier, >0=AgentID
         self.data = [[0 for _ in range(size)] for _ in range(size)]
-        # safe_zones: True/False map
         self.safe_zones = [[False for _ in range(size)] for _ in range(size)]
 
     def is_empty(self, x, y):
@@ -108,21 +106,18 @@ class Grid:
 # --- Logic Functions ---
 
 def is_safe(agent, grid):
-    """
-    Checks if agent is standing on a safe tile.
-    """
     return grid.is_safe_tile(agent.x, agent.y)
 
 class Agent:
     __slots__ = ('x', 'y', 'genome', 'connections', 'neurons', 'last_move', 'color', 'id')
-    def __init__(self, x, y, genome=None, agent_id=0):
+    def __init__(self, x, y, genome=None, genome_length=12, agent_id=0):
         self.x = x
         self.y = y
         self.id = agent_id
         self.last_move = (0, 0)
         
         if genome is None:
-            self.genome = [make_random_gene() for _ in range(12)]
+            self.genome = [make_random_gene() for _ in range(genome_length)]
         else:
             self.genome = genome
             

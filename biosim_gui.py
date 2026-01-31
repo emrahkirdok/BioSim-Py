@@ -18,7 +18,9 @@ CELL_SIZE = min((SIM_WIDTH - 20) // GRID_SIZE, (SIM_HEIGHT - 20) // GRID_SIZE)
 SIM_OFFSET_X = PANEL_WIDTH + (SIM_WIDTH - (GRID_SIZE * CELL_SIZE)) // 2
 SIM_OFFSET_Y = (SIM_HEIGHT - (GRID_SIZE * CELL_SIZE)) // 2
 
-POPULATION_SIZE = 1000
+# Defaults
+DEFAULT_POPULATION = 1000
+DEFAULT_GENOME_LEN = 12
 STEPS_PER_GEN = 300
 
 # Colors
@@ -36,6 +38,11 @@ SIM_STATE = "EDIT"
 TOOL_MODE = 0      
 MUTATION_RATE = 0.01
 PAUSED = False
+
+# Params controlled by UI
+POPULATION_SIZE = DEFAULT_POPULATION
+GENOME_LENGTH = DEFAULT_GENOME_LEN
+BRUSH_SIZE = 1
 
 SELECTED_AGENT = None
 AGENTS = []
@@ -71,7 +78,7 @@ def spawn_next_generation(agents, grid):
             loc = grid.find_empty_location()
             if loc:
                 x, y = loc
-                new_agents.append(bs.Agent(x, y, agent_id=i+1))
+                new_agents.append(bs.Agent(x, y, genome_length=GENOME_LENGTH, agent_id=i+1))
                 grid.set(x, y, i+1)
     else:
         for i in range(POPULATION_SIZE):
@@ -100,7 +107,7 @@ def populate_world():
         loc = GRID.find_empty_location()
         if loc:
             x, y = loc
-            AGENTS.append(bs.Agent(x, y, agent_id=i+1))
+            AGENTS.append(bs.Agent(x, y, genome_length=GENOME_LENGTH, agent_id=i+1))
             GRID.set(x, y, i+1)
 
 # --- UI Components ---
@@ -129,18 +136,19 @@ class Button:
                 self.callback()
 
 class Slider:
-    def __init__(self, x, y, w, h, min_val, max_val, initial, label):
+    def __init__(self, x, y, w, h, min_val, max_val, initial, label, int_mode=False):
         self.rect = pygame.Rect(x, y, w, h)
         self.min_val = min_val
         self.max_val = max_val
         self.value = initial
         self.label = label
+        self.int_mode = int_mode
         self.dragging = False
 
     def draw(self, screen, font):
-        val_str = f"{self.label}: {self.value:.3f}"
+        val_str = f"{self.label}: {int(self.value) if self.int_mode else f'{self.value:.3f}'}"
         text_surf = font.render(val_str, True, COLOR_TEXT)
-        screen.blit(text_surf, (self.rect.x, self.rect.y - 20))
+        screen.blit(text_surf, (self.rect.x, self.rect.y - 18))
         
         pygame.draw.rect(screen, (100, 100, 100), self.rect)
         
@@ -163,9 +171,16 @@ class Slider:
     def update_value(self, mouse_x):
         rel_x = mouse_x - self.rect.x
         ratio = max(0.0, min(1.0, rel_x / self.rect.width))
-        self.value = self.min_val + (ratio * (self.max_val - self.min_val))
-        global MUTATION_RATE
-        MUTATION_RATE = self.value
+        val = self.min_val + (ratio * (self.max_val - self.min_val))
+        if self.int_mode: val = int(round(val))
+        self.value = val
+        
+        # Link to globals
+        global MUTATION_RATE, BRUSH_SIZE, POPULATION_SIZE, GENOME_LENGTH
+        if "Mutation" in self.label: MUTATION_RATE = self.value
+        elif "Brush" in self.label: BRUSH_SIZE = int(self.value)
+        elif "Pop" in self.label: POPULATION_SIZE = int(self.value)
+        elif "Genome" in self.label: GENOME_LENGTH = int(self.value)
 
 # --- Visualization ---
 
@@ -194,7 +209,6 @@ def draw_brain(screen, agent, rect, font):
         node_positions[(1, i)] = (input_x, y)
         pygame.draw.circle(screen, (0, 200, 0), (input_x, y), node_radius)
         
-        # Label (Left of node)
         name = SENSOR_NAMES.get(i, str(i))
         lbl = font.render(name, True, (150, 255, 150))
         lbl_rect = lbl.get_rect(midright=(input_x - 10, y))
@@ -206,7 +220,6 @@ def draw_brain(screen, agent, rect, font):
         node_positions[('A', i)] = (output_x, y)
         pygame.draw.circle(screen, (200, 0, 0), (output_x, y), node_radius)
         
-        # Label (Right of node)
         name = ACTION_NAMES.get(i, str(i))
         lbl = font.render(name, True, (255, 150, 150))
         lbl_rect = lbl.get_rect(midleft=(output_x + 10, y))
@@ -239,6 +252,7 @@ def draw_brain(screen, agent, rect, font):
 
 def main():
     global SIM_STATE, TOOL_MODE, SELECTED_AGENT, GENERATION, STEP, AGENTS, GRID, PAUSED
+    global BRUSH_SIZE, POPULATION_SIZE, GENOME_LENGTH, MUTATION_RATE
 
     pygame.init()
     screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
@@ -277,14 +291,20 @@ def main():
     btn_pause = Button(120, 20, 60, 30, "Pause", toggle_pause)
     btn_clear = Button(190, 20, 60, 30, "Clear", clear_grid)
     
-    btn_tool_sel = Button(20, 80, 60, 30, "Sel", lambda: set_tool(0))
-    btn_tool_bar = Button(90, 80, 60, 30, "Wall", lambda: set_tool(1))
-    btn_tool_saf = Button(160, 80, 60, 30, "Zone", lambda: set_tool(2))
-    btn_tool_era = Button(230, 80, 60, 30, "Erase", lambda: set_tool(3))
+    btn_tool_sel = Button(20, 70, 60, 30, "Sel", lambda: set_tool(0))
+    btn_tool_bar = Button(90, 70, 60, 30, "Wall", lambda: set_tool(1))
+    btn_tool_saf = Button(160, 70, 60, 30, "Zone", lambda: set_tool(2))
+    btn_tool_era = Button(230, 70, 60, 30, "Erase", lambda: set_tool(3))
     
-    slider_mut = Slider(20, 150, 210, 20, 0.0, 0.1, MUTATION_RATE, "Mutation Rate")
+    # Sliders
+    # Adjusted Y positions to fit everything
+    slider_mut = Slider(20, 140, 210, 15, 0.0, 0.1, MUTATION_RATE, "Mutation Rate")
+    slider_brush = Slider(20, 190, 210, 15, 1, 5, BRUSH_SIZE, "Brush Size", int_mode=True)
+    slider_pop = Slider(20, 240, 210, 15, 100, 5000, POPULATION_SIZE, "Pop Size", int_mode=True)
+    slider_gene = Slider(20, 290, 210, 15, 4, 32, GENOME_LENGTH, "Genome Len", int_mode=True)
     
-    ui_elements = [btn_start, btn_pause, btn_clear, btn_tool_sel, btn_tool_bar, btn_tool_saf, btn_tool_era, slider_mut]
+    ui_elements = [btn_start, btn_pause, btn_clear, btn_tool_sel, btn_tool_bar, btn_tool_saf, btn_tool_era, 
+                   slider_mut, slider_brush, slider_pop, slider_gene]
 
     running = True
     mouse_down = False
@@ -316,25 +336,31 @@ def main():
                 gx = (mx - SIM_OFFSET_X) // CELL_SIZE
                 gy = (my - SIM_OFFSET_Y) // CELL_SIZE
                 
-                if 0 <= gx < GRID_SIZE and 0 <= gy < GRID_SIZE:
-                    if SIM_STATE == "EDIT":
-                        if TOOL_MODE == 1:
-                            GRID.set(gx, gy, bs.BARRIER)
-                        elif TOOL_MODE == 2:
-                            GRID.set_safe(gx, gy, True)
-                        elif TOOL_MODE == 3:
-                            GRID.set(gx, gy, 0)
-                            GRID.set_safe(gx, gy, False)
-                    
-                    if TOOL_MODE == 0:
-                        agent_id = GRID.data[gx][gy]
-                        if agent_id > 0:
-                            for a in AGENTS:
-                                if a.id == agent_id:
-                                    SELECTED_AGENT = a
-                                    break
-                        else:
-                            SELECTED_AGENT = None
+                # Brush Logic
+                if SIM_STATE == "EDIT" and TOOL_MODE != 0:
+                    r = BRUSH_SIZE - 1
+                    # Iterate square region
+                    for bx in range(gx - r, gx + r + 1):
+                        for by in range(gy - r, gy + r + 1):
+                            if 0 <= bx < GRID_SIZE and 0 <= by < GRID_SIZE:
+                                if TOOL_MODE == 1:
+                                    GRID.set(bx, by, bs.BARRIER)
+                                elif TOOL_MODE == 2:
+                                    GRID.set_safe(bx, by, True)
+                                elif TOOL_MODE == 3:
+                                    GRID.set(bx, by, 0)
+                                    GRID.set_safe(bx, by, False)
+                
+                # Selection logic (Single click, no brush)
+                if TOOL_MODE == 0 and 0 <= gx < GRID_SIZE and 0 <= gy < GRID_SIZE:
+                    agent_id = GRID.data[gx][gy]
+                    if agent_id > 0:
+                        for a in AGENTS:
+                            if a.id == agent_id:
+                                SELECTED_AGENT = a
+                                break
+                    else:
+                        SELECTED_AGENT = None
 
         if SIM_STATE == "RUN" and not PAUSED:
             random.shuffle(AGENTS)
@@ -373,7 +399,7 @@ def main():
             "L-Click to Draw/Sel"
         ]
         for i, line in enumerate(stats):
-            screen.blit(font.render(line, True, COLOR_TEXT), (20, 200 + i*20))
+            screen.blit(font.render(line, True, COLOR_TEXT), (20, 320 + i*20))
 
         brain_rect = pygame.Rect(10, WINDOW_HEIGHT - 290, PANEL_WIDTH - 20, 280)
         draw_brain(screen, SELECTED_AGENT, brain_rect, small_font)
@@ -384,6 +410,7 @@ def main():
         sim_rect = pygame.Rect(SIM_OFFSET_X, SIM_OFFSET_Y, GRID_SIZE*CELL_SIZE, GRID_SIZE*CELL_SIZE)
         pygame.draw.rect(screen, (0, 0, 0), sim_rect)
         
+        # Draw Zones/Barriers
         for x in range(GRID_SIZE):
             for y in range(GRID_SIZE):
                 if GRID.is_safe_tile(x, y):
@@ -393,6 +420,7 @@ def main():
                     rect = (SIM_OFFSET_X + x * CELL_SIZE, SIM_OFFSET_Y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
                     pygame.draw.rect(screen, COLOR_BARRIER, rect)
 
+        # Draw Agents
         for agent in AGENTS:
             rect = (SIM_OFFSET_X + agent.x * CELL_SIZE, SIM_OFFSET_Y + agent.y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
             pygame.draw.rect(screen, agent.color, rect)
