@@ -54,9 +54,9 @@ STEP = 0
 # --- Labels ---
 SENSOR_NAMES = {
     0: "LocX", 1: "LocY", 2: "Rnd", 
-    3: "LmvX", 4: "LmvY", 5: "Osc"
+    3: "LmvX", 4: "LmvY", 5: "Osc",
+    6: "DstBar", 7: "DstSafe", 8: "DensAg"
 }
-# --- Labels ---
 ACTION_NAMES = {
     0: "MvX", 1: "MvY", 2: "MvFwd", 
     3: "ColR", 4: "ColG", 5: "ColB"
@@ -366,7 +366,8 @@ def main():
         if SIM_STATE == "RUN" and not PAUSED:
             random.shuffle(AGENTS)
             for agent in AGENTS:
-                dx, dy, _ = agent.think(GRID_SIZE, STEP)
+                # Need to update call to think() to pass GRID for raycasting
+                dx, dy, _ = agent.think(GRID, STEP) 
                 if dx != 0 or dy != 0:
                     nx, ny = agent.x + dx, agent.y + dy
                     if 0 <= nx < GRID_SIZE and 0 <= ny < GRID_SIZE:

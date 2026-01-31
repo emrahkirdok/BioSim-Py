@@ -4,8 +4,12 @@ import copy
 
 # --- Constants ---
 MAX_NEURONS = 10
-S_LOC_X, S_LOC_Y, S_RANDOM, S_LAST_MOVE_X, S_LAST_MOVE_Y, S_OSC = range(6)
-NUM_SENSORS = 6
+# Existing: 0-5
+# New: 6-8
+S_LOC_X, S_LOC_Y, S_RANDOM, S_LAST_MOVE_X, S_LAST_MOVE_Y, S_OSC, \
+S_DIST_BARRIER_FWD, S_DIST_SAFE_FWD, S_DENS_AGENTS_FWD = range(9)
+NUM_SENSORS = 9
+
 A_MOVE_X, A_MOVE_Y, A_MOVE_FWD, A_COLOR_R, A_COLOR_G, A_COLOR_B = range(6)
 NUM_ACTIONS = 6
 
@@ -82,6 +86,11 @@ class Grid:
         if 0 <= x < self.size and 0 <= y < self.size:
             return self.safe_zones[x][y]
         return False
+    
+    def is_agent(self, x, y):
+        if 0 <= x < self.size and 0 <= y < self.size:
+            return self.data[x][y] > 0
+        return False
 
     def set(self, x, y, val):
         if 0 <= x < self.size and 0 <= y < self.size:
@@ -114,7 +123,7 @@ class Agent:
         self.x = x
         self.y = y
         self.id = agent_id
-        self.last_move = (0, 0)
+        self.last_move = (0, 0) # (dx, dy)
         
         if genome is None:
             self.genome = [make_random_gene() for _ in range(genome_length)]
@@ -137,21 +146,58 @@ class Agent:
             sink_id = g.sink_num % (MAX_NEURONS if sink_t == 0 else NUM_ACTIONS)
             self.connections.append((src_t, src_id, sink_t, sink_id, g.weight))
 
-    def get_sensor(self, index, grid_size, time_step):
-        if index == S_LOC_X: return self.x / grid_size
-        if index == S_LOC_Y: return self.y / grid_size
+    def get_sensor(self, index, grid, time_step):
+        if index == S_LOC_X: return self.x / grid.size
+        if index == S_LOC_Y: return self.y / grid.size
         if index == S_RANDOM: return random.random()
         if index == S_LAST_MOVE_X: return (self.last_move[0] + 1) / 2
         if index == S_LAST_MOVE_Y: return (self.last_move[1] + 1) / 2
         if index == S_OSC: return (math.sin(time_step * 0.1) + 1) / 2
+        
+        # New Proximity Sensors
+        # Look Ahead logic
+        dx, dy = self.last_move
+        if dx == 0 and dy == 0: 
+            # If idle, assume looking "North" or "Right" default? Or Random?
+            # Let's use (1, 0) as default forward if static
+            dx, dy = 1, 0
+        
+        probe_dist = 10
+        
+        if index == S_DIST_BARRIER_FWD:
+            for d in range(1, probe_dist + 1):
+                nx, ny = self.x + dx * d, self.y + dy * d
+                if not (0 <= nx < grid.size and 0 <= ny < grid.size): 
+                    return (probe_dist - d) / probe_dist # Hit World Border
+                if grid.is_barrier(nx, ny):
+                    return (probe_dist - d) / probe_dist # Hit Wall (Closer = Higher)
+            return 0.0 # Nothing found
+            
+        if index == S_DIST_SAFE_FWD:
+            for d in range(1, probe_dist + 1):
+                nx, ny = self.x + dx * d, self.y + dy * d
+                if 0 <= nx < grid.size and 0 <= ny < grid.size:
+                    if grid.is_safe_tile(nx, ny):
+                        return (probe_dist - d) / probe_dist
+            return 0.0
+
+        if index == S_DENS_AGENTS_FWD:
+            count = 0
+            for d in range(1, probe_dist + 1):
+                nx, ny = self.x + dx * d, self.y + dy * d
+                if grid.is_agent(nx, ny):
+                    count += 1
+            return count / probe_dist
+
         return 0.0
 
-    def think(self, grid_size, time_step):
+    def think(self, grid, time_step):
         action_levels = [0.0] * NUM_ACTIONS
         next_neurons = [0.0] * MAX_NEURONS
         
         for src_t, src_id, sink_t, sink_id, w in self.connections:
-            val = self.get_sensor(src_id, grid_size, time_step) if src_t == 1 else self.neurons[src_id]
+            # Pass Grid object to get_sensor for raycasting
+            val = self.get_sensor(src_id, grid, time_step) if src_t == 1 else self.neurons[src_id]
             output = val * w
             if sink_t == 1: action_levels[sink_id] += output
             else: next_neurons[sink_id] += output
