@@ -9,7 +9,7 @@ NUM_SENSORS = 6
 A_MOVE_X, A_MOVE_Y, A_MOVE_FWD, A_COLOR_R, A_COLOR_G, A_COLOR_B = range(6)
 NUM_ACTIONS = 6
 
-BARRIER = -1  # Grid value for a wall
+BARRIER = -1 
 
 class Gene:
     __slots__ = ('source_type', 'source_num', 'sink_type', 'sink_num', 'weight')
@@ -63,11 +63,12 @@ def crossover_genomes(g1, g2):
     return child_genome
 
 class Grid:
-    """Manages spatial occupancy to prevent overlaps."""
     def __init__(self, size):
         self.size = size
-        # 0 means empty, -1 means barrier, >0 means agent_id
+        # data: 0=Empty, -1=Barrier, >0=AgentID
         self.data = [[0 for _ in range(size)] for _ in range(size)]
+        # safe_zones: True/False map
+        self.safe_zones = [[False for _ in range(size)] for _ in range(size)]
 
     def is_empty(self, x, y):
         if 0 <= x < self.size and 0 <= y < self.size:
@@ -78,60 +79,39 @@ class Grid:
         if 0 <= x < self.size and 0 <= y < self.size:
             return self.data[x][y] == BARRIER
         return False
+        
+    def is_safe_tile(self, x, y):
+        if 0 <= x < self.size and 0 <= y < self.size:
+            return self.safe_zones[x][y]
+        return False
 
     def set(self, x, y, val):
         if 0 <= x < self.size and 0 <= y < self.size:
             self.data[x][y] = val
+
+    def set_safe(self, x, y, is_safe):
+        if 0 <= x < self.size and 0 <= y < self.size:
+            self.safe_zones[x][y] = is_safe
 
     def clear(self, x, y):
         if 0 <= x < self.size and 0 <= y < self.size:
             self.data[x][y] = 0
 
     def find_empty_location(self):
-        for _ in range(100): # Try 100 times
+        for _ in range(100): 
             x = random.randint(0, self.size - 1)
             y = random.randint(0, self.size - 1)
             if self.data[x][y] == 0:
                 return x, y
         return None
 
-def create_barriers(grid, barrier_type):
-    # clear barriers first (but keep agents? usually done at start of gen)
-    # We assume empty grid or overwrite
-    
-    # Helper to draw box
-    def draw_box(min_x, min_y, max_x, max_y):
-        for x in range(max(0, min_x), min(grid.size, max_x + 1)):
-            for y in range(max(0, min_y), min(grid.size, max_y + 1)):
-                grid.set(x, y, BARRIER)
+# --- Logic Functions ---
 
-    if barrier_type == 0:
-        return # None
-
-    elif barrier_type == 1: # Central Vertical Line
-        min_x = grid.size // 2
-        min_y = grid.size // 4
-        max_y = min_y + grid.size // 2
-        draw_box(min_x, min_y, min_x + 1, max_y)
-
-    elif barrier_type == 2: # Vertical Line (Random)
-        min_x = random.randint(20, grid.size - 20)
-        min_y = random.randint(20, grid.size // 2 - 20)
-        max_y = min_y + grid.size // 2
-        draw_box(min_x, min_y, min_x + 1, max_y)
-
-    elif barrier_type == 3: # Floating Islands (Boxy)
-        for _ in range(3):
-            cx = random.randint(10, grid.size - 10)
-            cy = random.randint(10, grid.size - 10)
-            r = random.randint(2, 6)
-            draw_box(cx - r, cy - r, cx + r, cy + r)
-
-    elif barrier_type == 4: # Horizontal Bar
-        min_x = grid.size // 4
-        max_x = min_x + grid.size // 2
-        min_y = (grid.size // 4) * 3
-        draw_box(min_x, min_y, max_x, min_y + 2)
+def is_safe(agent, grid):
+    """
+    Checks if agent is standing on a safe tile.
+    """
+    return grid.is_safe_tile(agent.x, agent.y)
 
 class Agent:
     __slots__ = ('x', 'y', 'genome', 'connections', 'neurons', 'last_move', 'color', 'id')
@@ -183,7 +163,6 @@ class Agent:
         
         for i in range(MAX_NEURONS): self.neurons[i] = math.tanh(next_neurons[i])
         
-        # Determine intended movement
         move_x = math.tanh(action_levels[A_MOVE_X])
         move_y = math.tanh(action_levels[A_MOVE_Y])
         
