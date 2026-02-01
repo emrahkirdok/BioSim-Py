@@ -25,6 +25,15 @@ This file tracks advanced biological and algorithmic features for future investi
 *   **Concept:** Each agent has two versions of each gene (Dominant/Recessive).
 *   **Why:** Protects against lethal mutations and increases genetic diversity.
 
+### 4. Speciation & Synteny (Structure-Based Reproduction)
+*   **Concept:** Enforce genetic compatibility before reproduction.
+*   **Mechanism:** If two parents have significantly different genome structures (e.g., length, gene order), they cannot produce viable offspring.
+*   **Why:** Mimics nature's way of preserving "Synteny" (conserved gene order) and leads to the emergence of distinct species.
+
+### 5. Advanced Crossover (Set-Based)
+*   **Concept:** Treat the genome as a "Bag of Genes" rather than a linear list during recombination.
+*   **Why:** Prevents breaking functional gene blocks just because they are at different indices in the parents' arrays.
+
 ---
 
 ## ⚙️ Engine & Simulation
