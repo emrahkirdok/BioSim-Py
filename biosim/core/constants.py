@@ -23,3 +23,18 @@ SENSOR_NAMES = {
 ACTION_NAMES = {
     0: "MvX", 1: "MvY", 2: "MvFwd", 3: "Emit"
 }
+
+# Metadata for Toggles (Grouping related sensors)
+# Each entry: (Label, List of Indices)
+SENSOR_GROUPS = {
+    "Pos": [S_LOC_X, S_LOC_Y],
+    "Vision": [S_DIST_BARRIER_FWD, S_DIST_SAFE_FWD, S_DENS_AGENTS_FWD],
+    "Smell": [S_SMELL],
+    "Osc": [S_OSC],
+    "Mem": [S_LAST_MOVE_X, S_LAST_MOVE_Y]
+}
+
+ACTION_GROUPS = {
+    "Move": [A_MOVE_X, A_MOVE_Y, A_MOVE_FWD],
+    "Emit": [A_EMIT]
+}
