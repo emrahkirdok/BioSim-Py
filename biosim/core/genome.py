@@ -20,6 +20,60 @@ class Gene:
         g.weight = self.weight
         return g
 
+    def to_hex(self):
+        """Encodes gene into an 8-character hex string (32-bit packed)."""
+        # Pack bits: 
+        # [31: SrcT] [30-24: SrcID] [23: SnkT] [22-16: SnkID] [15-0: Weight]
+        
+        # Clamp IDs to 7 bits (0-127)
+        src_id = self.source_num & 0x7F
+        snk_id = self.sink_num & 0x7F
+        
+        # Convert float weight back to 16-bit int (scaled by 8192)
+        # Clamp to signed 16-bit range (-32768 to 32767)
+        w_int = int(self.weight * 8192.0)
+        w_int = max(-32768, min(32767, w_int))
+        w_int &= 0xFFFF # Mask to 16 bits
+        
+        packed = (self.source_type << 31) | (src_id << 24) | \
+                 (self.sink_type << 23) | (snk_id << 16) | \
+                 w_int
+                 
+        return f"{packed:08X}"
+
+    @staticmethod
+    def from_hex(hex_str):
+        """Decodes an 8-character hex string into a Gene."""
+        val = int(hex_str, 16)
+        g = Gene()
+        
+        g.source_type = (val >> 31) & 1
+        g.source_num = (val >> 24) & 0x7F
+        g.sink_type = (val >> 23) & 1
+        g.sink_num = (val >> 16) & 0x7F
+        
+        # Weight is signed 16-bit
+        w_int = val & 0xFFFF
+        if w_int >= 0x8000:
+            w_int -= 0x10000
+        g.weight = w_int / 8192.0
+        
+        return g
+
+def genome_to_hex(genome):
+    """Converts a list of Genes to a single hex string."""
+    return "".join([g.to_hex() for g in genome])
+
+def genome_from_hex(hex_str):
+    """Converts a hex string back to a list of Genes."""
+    # Chunk into 8 chars
+    genes = []
+    for i in range(0, len(hex_str), 8):
+        chunk = hex_str[i:i+8]
+        if len(chunk) == 8:
+            genes.append(Gene.from_hex(chunk))
+    return genes
+
 def make_random_gene():
     g = Gene()
     g.source_type = random.choice([0, 1])
