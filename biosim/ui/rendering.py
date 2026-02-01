@@ -17,11 +17,8 @@ def draw_brain(screen, agent, rect, font, mouse_pos=None):
     output_x = rect.right - 50
     hidden_x = rect.centerx
     
-    # Reserve space at bottom for Genome Hex
-    genome_area_height = 40
-    viz_height = rect.height - genome_area_height
-    
-    y_spacing = viz_height / (max(NUM_SENSORS, NUM_ACTIONS) + 1)
+    # Use full height
+    y_spacing = rect.height / (max(NUM_SENSORS, NUM_ACTIONS) + 1)
     
     node_positions = {}
     hovered_node = None
@@ -41,8 +38,8 @@ def draw_brain(screen, agent, rect, font, mouse_pos=None):
         if mouse_pos and math.hypot(mouse_pos[0]-pos[0], mouse_pos[1]-pos[1]) < node_radius + 5:
             hovered_node = ('A', i)
 
-    center_y = rect.top + viz_height / 2
-    radius = min(rect.width, viz_height) / 4
+    center_y = rect.centery
+    radius = min(rect.width, rect.height) / 4
     for i in range(MAX_NEURONS):
         angle = (2 * math.pi * i) / MAX_NEURONS
         nx = hidden_x + math.cos(angle) * radius
@@ -119,17 +116,3 @@ def draw_brain(screen, agent, rect, font, mouse_pos=None):
         border_col = (255, 255, 255) if is_hover else (100, 100, 100)
         pygame.draw.circle(screen, base_col, pos, node_radius + (2 if is_hover else 0))
         pygame.draw.circle(screen, border_col, pos, node_radius + (2 if is_hover else 0), 1)
-
-    # 4. Draw Genome String
-    dna = genome_to_hex(agent.genome)
-    # Truncate if too long to fit
-    display_dna = dna[:64] + ("..." if len(dna) > 64 else "")
-    
-    # Draw label
-    lbl_dna = font.render("Genome:", True, (150, 150, 150))
-    screen.blit(lbl_dna, (rect.left + 5, rect.bottom - 35))
-    
-    # Draw Hex code (smaller font?)
-    # Using existing font but maybe gray
-    txt_dna = font.render(display_dna, True, (100, 200, 255))
-    screen.blit(txt_dna, (rect.left + 5, rect.bottom - 20))

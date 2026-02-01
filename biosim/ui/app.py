@@ -5,16 +5,19 @@ import pygame
 from biosim.core.constants import *
 from biosim.core.grid import Grid, is_safe
 from biosim.core.agent import Agent
-from biosim.core.genome import crossover_genomes, mutate_genome
+from biosim.core.genome import crossover_genomes, mutate_genome, genome_to_hex
 from biosim.ui.widgets import Button, Slider
 from biosim.ui.rendering import draw_brain
 
 # Config
-WINDOW_WIDTH = 1200
-WINDOW_HEIGHT = 800
 PANEL_WIDTH = 300
-SIM_WIDTH = WINDOW_WIDTH - PANEL_WIDTH
-SIM_HEIGHT = WINDOW_HEIGHT
+SIM_WIDTH = 900
+SIM_HEIGHT = 800
+BOTTOM_BAR_HEIGHT = 50 # New bar for Hex code
+
+WINDOW_WIDTH = PANEL_WIDTH + SIM_WIDTH
+WINDOW_HEIGHT = SIM_HEIGHT + BOTTOM_BAR_HEIGHT
+
 GRID_SIZE = 128
 CELL_SIZE = min((SIM_WIDTH - 20) // GRID_SIZE, (SIM_HEIGHT - 20) // GRID_SIZE)
 SIM_OFFSET_X = PANEL_WIDTH + (SIM_WIDTH - (GRID_SIZE * CELL_SIZE)) // 2
@@ -92,6 +95,7 @@ class App:
     def clear_grid(self): 
         self.grid = Grid(GRID_SIZE)
         self.agents = []
+        self.selected_agent = None
         
     def set_tool(self, mode): self.tool_mode = mode
     def set_mut_rate(self, val): self.mutation_rate = val
@@ -145,6 +149,7 @@ class App:
                     new_agents.append(Agent(x, y, genome=child_genome, agent_id=i+1))
                     self.grid.set(x, y, i+1)
         self.agents = new_agents
+        self.selected_agent = None
 
     def run(self):
         running = True
@@ -171,7 +176,9 @@ class App:
             # Interaction
             if mouse_down:
                 mx, my = pygame.mouse.get_pos()
-                if mx > PANEL_WIDTH:
+                
+                # Check if in Sim Area (excluding bottom bar)
+                if mx > PANEL_WIDTH and my < SIM_HEIGHT:
                     gx = (mx - SIM_OFFSET_X) // CELL_SIZE
                     gy = (my - SIM_OFFSET_Y) // CELL_SIZE
                     
@@ -221,7 +228,7 @@ class App:
             self.screen.fill(COLOR_BG)
             
             # Panel
-            pygame.draw.rect(self.screen, COLOR_PANEL, (0, 0, PANEL_WIDTH, WINDOW_HEIGHT))
+            pygame.draw.rect(self.screen, COLOR_PANEL, (0, 0, PANEL_WIDTH, SIM_HEIGHT)) # Stop before bottom bar
             pygame.draw.line(self.screen, (100, 100, 100), (PANEL_WIDTH, 0), (PANEL_WIDTH, WINDOW_HEIGHT))
             
             for btn in self.buttons: btn.draw(self.screen, self.font)
@@ -239,11 +246,11 @@ class App:
                 self.screen.blit(self.font.render(line, True, COLOR_TEXT), (20, 330 + i*20))
 
             # Brain Viz
-            brain_rect = pygame.Rect(10, WINDOW_HEIGHT - 290, PANEL_WIDTH - 20, 280)
+            brain_rect = pygame.Rect(10, SIM_HEIGHT - 290, PANEL_WIDTH - 20, 280)
             draw_brain(self.screen, self.selected_agent, brain_rect, self.small_font, pygame.mouse.get_pos())
             if self.selected_agent:
                 id_txt = self.font.render(f"Agent ID: {self.selected_agent.id}", True, COLOR_HIGHLIGHT)
-                self.screen.blit(id_txt, (20, WINDOW_HEIGHT - 310))
+                self.screen.blit(id_txt, (20, SIM_HEIGHT - 310))
 
             # Sim View
             sim_rect = pygame.Rect(SIM_OFFSET_X, SIM_OFFSET_Y, GRID_SIZE*CELL_SIZE, GRID_SIZE*CELL_SIZE)
@@ -265,6 +272,24 @@ class App:
                     pygame.draw.rect(self.screen, COLOR_HIGHLIGHT, rect, 2)
 
             pygame.draw.rect(self.screen, (100, 100, 100), sim_rect, 1)
+            
+            # --- Bottom Bar (Genome Inspector) ---
+            bottom_bar_rect = pygame.Rect(0, SIM_HEIGHT, WINDOW_WIDTH, BOTTOM_BAR_HEIGHT)
+            pygame.draw.rect(self.screen, (30, 30, 35), bottom_bar_rect)
+            pygame.draw.line(self.screen, (100, 100, 100), (0, SIM_HEIGHT), (WINDOW_WIDTH, SIM_HEIGHT))
+            
+            if self.selected_agent:
+                dna = genome_to_hex(self.selected_agent.genome)
+                # Render label
+                lbl = self.font.render("Genome:", True, (150, 150, 150))
+                self.screen.blit(lbl, (10, SIM_HEIGHT + 15))
+                # Render DNA
+                dna_surf = self.font.render(dna, True, (100, 200, 255))
+                self.screen.blit(dna_surf, (80, SIM_HEIGHT + 15))
+            else:
+                hint = self.font.render("Select an agent to inspect its genome.", True, (100, 100, 100))
+                self.screen.blit(hint, (10, SIM_HEIGHT + 15))
+
             pygame.display.flip()
             self.clock.tick(60)
 
