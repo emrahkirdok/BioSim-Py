@@ -48,7 +48,7 @@ class App:
         self.mutation_rate = 0.01
         self.insertion_rate = 0.01
         self.deletion_rate = 0.01
-        self.unequal_rate = 0.0 # 0% chance by default (safe)
+        self.unequal_rate = 0.0 
         
         self.brush_size = 1
         self.pop_size = 1000
@@ -73,7 +73,6 @@ class App:
         self.btn_tool_saf = Button(160, 60, 60, 30, "Zone", lambda: self.set_tool(2))
         self.btn_tool_era = Button(230, 60, 60, 30, "Erase", lambda: self.set_tool(3))
         
-        # Condensed Slider Layout
         y = 110
         gap = 35
         
@@ -137,13 +136,10 @@ class App:
     def spawn_next_generation(self):
         survivors = [a for a in self.agents if is_safe(a, self.grid)]
         num_survivors = len(survivors)
-        
-        # Clear agents from grid
         for x in range(GRID_SIZE):
             for y in range(GRID_SIZE):
                 if not self.grid.is_barrier(x, y):
                     self.grid.set(x, y, 0)
-        
         new_agents = []
         if num_survivors == 0:
             for i in range(self.pop_size):
@@ -156,12 +152,9 @@ class App:
             for i in range(self.pop_size):
                 p1 = random.choice(survivors)
                 p2 = random.choice(survivors)
-                
-                # Use dynamic rates
                 child_genome = crossover_genomes(p1.genome, p2.genome, unequal_rate=self.unequal_rate)
                 mutate_genome(child_genome, mutation_rate=self.mutation_rate, 
                               insertion_rate=self.insertion_rate, deletion_rate=self.deletion_rate)
-                
                 loc = self.grid.find_empty_location()
                 if loc:
                     x, y = loc
@@ -173,6 +166,9 @@ class App:
     def run(self):
         running = True
         mouse_down = False
+        
+        # Cursor surface for semi-transparent brush helper
+        cursor_surf = pygame.Surface((CELL_SIZE*11, CELL_SIZE*11), pygame.SRCALPHA)
         
         while running:
             # Events
@@ -193,13 +189,14 @@ class App:
                 elif event.type == pygame.MOUSEBUTTONUP: mouse_down = False
 
             # Interaction
+            mx, my = pygame.mouse.get_pos()
+            gx, gy = -1, -1
+            if mx > PANEL_WIDTH and my < SIM_HEIGHT:
+                gx = (mx - SIM_OFFSET_X) // CELL_SIZE
+                gy = (my - SIM_OFFSET_Y) // CELL_SIZE
+
             if mouse_down:
-                mx, my = pygame.mouse.get_pos()
-                
-                if mx > PANEL_WIDTH and my < SIM_HEIGHT:
-                    gx = (mx - SIM_OFFSET_X) // CELL_SIZE
-                    gy = (my - SIM_OFFSET_Y) // CELL_SIZE
-                    
+                if gx != -1:
                     if self.sim_state == "EDIT" and self.tool_mode != 0:
                         r = self.brush_size - 1
                         for bx in range(gx - r, gx + r + 1):
@@ -289,6 +286,18 @@ class App:
 
             pygame.draw.rect(self.screen, (100, 100, 100), sim_rect, 1)
             
+            # --- Brush Cursor Helper ---
+            if self.sim_state == "EDIT" and self.tool_mode != 0 and gx != -1:
+                r = self.brush_size - 1
+                size = (2 * r + 1) * CELL_SIZE
+                # Create semi-transparent overlay
+                overlay = pygame.Surface((size, size), pygame.SRCALPHA)
+                overlay.fill((255, 255, 255, 100)) # Semi-transparent white
+                # Center cursor on gx, gy
+                cx = SIM_OFFSET_X + (gx - r) * CELL_SIZE
+                cy = SIM_OFFSET_Y + (gy - r) * CELL_SIZE
+                self.screen.blit(overlay, (cx, cy))
+
             # Bottom Bar
             bottom_bar_rect = pygame.Rect(0, SIM_HEIGHT, WINDOW_WIDTH, BOTTOM_BAR_HEIGHT)
             pygame.draw.rect(self.screen, (30, 30, 35), bottom_bar_rect)
