@@ -13,16 +13,18 @@ The simulation models a population of agents that evolve over time to survive in
 *   **Physics Engine:** Collision detection prevents agents from moving through walls or overlapping with each other.
 *   **Boundary Constraints:** Agents are confined to the 128x128 grid (no wrapping).
 
-### 2. Biological Engine (`biosim_lib.py`)
+### 2. Biological Engine (`biosim/core`)
 *   **Genetics:** Agents have genomes (lists of genes) that can mutate and crossover (sexual reproduction).
 *   **Neural Network:** 
     *   **Sensors:** Vision (Raycasting), Position, Randomness, Oscillator.
-    *   **Actions:** Movement (Cardinal directions), Color change.
+    *   **Actions:** Movement (Cardinal directions).
     *   **Hidden Layer:** Up to 10 internal neurons for complex processing.
 *   **Evolution:** Agents that end the generation inside a "Safe Zone" survive and reproduce.
 
 ### 3. Inspection Tools
 *   **Brain Visualizer:** Click on any agent to inspect its Neural Network in real-time.
+    *   **Interactive Highlight:** Hover over nodes to isolate specific connections.
+    *   **Labels:** See exactly which sensor (e.g., `DstBar`) connects to which action (`MvFwd`).
     *   **Green Nodes:** Sensors (Inputs).
     *   **Red Nodes:** Actions (Outputs).
     *   **Connections:** Blue lines (Positive weights) and Red lines (Negative weights).
@@ -61,7 +63,6 @@ The simulation models a population of agents that evolve over time to survive in
 ### Actions (Outputs)
 *   `MvX`, `MvY`: Movement velocity vector.
 *   `MvFwd`: Move in previous direction.
-*   `ColR`, `ColG`, `ColB`: Change body color.
 
 ## Installation & Usage
 
@@ -76,9 +77,17 @@ pip install pygame
 ### Running the Application
 ```bash
 cd biosim4_py
-python3 biosim_gui.py
+python3 main.py
 ```
 
 ## Architecture
-*   **`biosim_gui.py`**: Handles rendering, input, and the main application loop.
-*   **`biosim_lib.py`**: Contains the core simulation logic (`Agent`, `Genome`, `Grid`, `Physics`, `Evolution`).
+The project is organized as a modular Python package:
+
+*   **`main.py`**: Entry point.
+*   **`biosim/core/`**: Simulation logic (biology, physics, grid).
+    *   `agent.py`: Brain and Sensor logic.
+    *   `genome.py`: Mutation and Crossover algorithms.
+    *   `grid.py`: Spatial management.
+*   **`biosim/ui/`**: Visualization and Interface.
+    *   `app.py`: Main game loop and event handling.
+    *   `rendering.py`: Drawing functions for Brain and Grid.
