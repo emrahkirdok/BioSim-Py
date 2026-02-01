@@ -3,6 +3,7 @@ import random
 import pygame
 import os
 import numpy as np
+import math
 
 from biosim.core.constants import *
 from biosim.core.grid import Grid, is_safe
@@ -38,7 +39,7 @@ class App:
     def __init__(self):
         pygame.init()
         self.screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
-        pygame.display.set_caption("BioSim Python Port")
+        pygame.display.set_caption("BioSim-Py")
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("monospace", 14)
         self.small_font = pygame.font.SysFont("monospace", 10)
@@ -61,7 +62,7 @@ class App:
         self.genome_len = 12
         self.steps_per_gen = 300
         
-        self.enabled_traits = {"Vision": True, "Smell": True, "Osc": True, "Mem": True, "Emit": True}
+        self.enabled_traits = {"Vision": True, "Smell": True, "Osc": True, "Mem": True, "Emit": True, "Kill": False}
         self.sync_genetic_config()
         
         self.grid = Grid(GRID_SIZE)
@@ -78,10 +79,12 @@ class App:
         if self.enabled_traits["Smell"]: sensors += SENSOR_GROUPS["Smell"]
         if self.enabled_traits["Osc"]: sensors += SENSOR_GROUPS["Osc"]
         if self.enabled_traits["Mem"]: sensors += SENSOR_GROUPS["Mem"]
+        if self.enabled_traits["Kill"]: sensors += SENSOR_GROUPS["Danger"]
         gen.ENABLED_SENSORS = sorted(list(set(sensors)))
         
         actions = [A_MOVE_X, A_MOVE_Y, A_MOVE_FWD]
         if self.enabled_traits["Emit"]: actions += ACTION_GROUPS["Emit"]
+        if self.enabled_traits["Kill"]: actions += ACTION_GROUPS["Kill"]
         gen.ENABLED_ACTIONS = sorted(list(set(actions)))
 
     def init_ui(self):
@@ -95,13 +98,17 @@ class App:
         self.btn_tool_bar = Button(90, y_tool, 60, 30, "Wall", lambda: self.set_tool(1))
         self.btn_tool_saf = Button(160, y_tool, 60, 30, "Zone", lambda: self.set_tool(2))
         self.btn_tool_era = Button(230, y_tool, 60, 30, "Erase", lambda: self.set_tool(3))
+        
         y_toggle = 140
-        self.btn_tog_vis = Button(20, y_toggle, 50, 20, "Vis", lambda: self.toggle_trait("Vision"))
-        self.btn_tog_sml = Button(75, y_toggle, 50, 20, "Sml", lambda: self.toggle_trait("Smell"))
-        self.btn_tog_osc = Button(130, y_toggle, 50, 20, "Osc", lambda: self.toggle_trait("Osc"))
-        self.btn_tog_mem = Button(185, y_toggle, 50, 20, "Mem", lambda: self.toggle_trait("Mem"))
-        self.btn_tog_emt = Button(240, y_toggle, 50, 20, "Emt", lambda: self.toggle_trait("Emit"))
-        y_slide = 185
+        t_w = 42
+        self.btn_tog_vis = Button(20, y_toggle, t_w, 20, "Vis", lambda: self.toggle_trait("Vision"))
+        self.btn_tog_sml = Button(20+t_w+5, y_toggle, t_w, 20, "Sml", lambda: self.toggle_trait("Smell"))
+        self.btn_tog_osc = Button(20+(t_w+5)*2, y_toggle, t_w, 20, "Osc", lambda: self.toggle_trait("Osc"))
+        self.btn_tog_mem = Button(20+(t_w+5)*3, y_toggle, t_w, 20, "Mem", lambda: self.toggle_trait("Mem"))
+        self.btn_tog_emt = Button(20+(t_w+5)*4, y_toggle, t_w, 20, "Emt", lambda: self.toggle_trait("Emit"))
+        self.btn_tog_kil = Button(20+(t_w+5)*5, y_toggle, t_w, 20, "Kil", lambda: self.toggle_trait("Kill"))
+        
+        y_slide = 175
         gap = 33
         self.sliders = [
             Slider(20, y_slide, 210, 12, 0.0, 0.1, self.mutation_rate, "Mut Rate", self.set_mut_rate),
@@ -114,13 +121,12 @@ class App:
             Slider(20, y_slide+gap*7, 210, 12, 100, 2000, self.steps_per_gen, "Steps/Gen", self.set_steps, int_mode=True)
         ]
         
-        # Prune and Spawn toggles
         self.btn_prune = Button(130, SIM_HEIGHT - 330, 150, 25, "Hide Dead Nodes", self.toggle_prune)
         self.btn_spawn_away = Button(20, SIM_HEIGHT - 330, 100, 25, "Spawn Away", self.toggle_spawn_away)
         
         self.buttons = [self.btn_start, self.btn_pause, self.btn_clear, self.btn_save, self.btn_load,
                         self.btn_tool_sel, self.btn_tool_bar, self.btn_tool_saf, self.btn_tool_era,
-                        self.btn_tog_vis, self.btn_tog_sml, self.btn_tog_osc, self.btn_tog_mem, self.btn_tog_emt,
+                        self.btn_tog_vis, self.btn_tog_sml, self.btn_tog_osc, self.btn_tog_mem, self.btn_tog_emt, self.btn_tog_kil,
                         self.btn_prune, self.btn_spawn_away]
 
     def toggle_trait(self, trait): self.enabled_traits[trait] = not self.enabled_traits[trait]; self.sync_genetic_config()
@@ -177,7 +183,8 @@ class App:
             if loc: x, y = loc; self.agents.append(Agent(x, y, genome_length=self.genome_len, agent_id=i+1)); self.grid.set(x, y, i+1)
 
     def spawn_next_generation(self):
-        survivors = [a for a in self.agents if is_safe(a, self.grid)]
+        # Only survivors breed
+        survivors = [a for a in self.agents if a.alive and is_safe(a, self.grid)]
         num_survivors = len(survivors)
         for x in range(GRID_SIZE):
             for y in range(GRID_SIZE):
@@ -212,7 +219,7 @@ class App:
                 self.btn_tool_sel.toggled = (self.tool_mode == 0); self.btn_tool_bar.toggled = (self.tool_mode == 1)
                 self.btn_tool_saf.toggled = (self.tool_mode == 2); self.btn_tool_era.toggled = (self.tool_mode == 3)
                 self.btn_tog_vis.toggled, self.btn_tog_sml.toggled = self.enabled_traits["Vision"], self.enabled_traits["Smell"]
-                self.btn_tog_osc.toggled, self.btn_tog_mem.toggled, self.btn_tog_emt.toggled = self.enabled_traits["Osc"], self.enabled_traits["Mem"], self.enabled_traits["Emit"]
+                self.btn_tog_osc.toggled, self.btn_tog_mem.toggled, self.btn_tog_emt.toggled, self.btn_tog_kil.toggled = self.enabled_traits["Osc"], self.enabled_traits["Mem"], self.enabled_traits["Emit"], self.enabled_traits["Kill"]
                 self.btn_prune.toggled, self.btn_spawn_away.toggled = self.hide_dead_nodes, self.spawn_away
                 for btn in self.buttons: btn.handle_event(event)
                 for sld in self.sliders: sld.handle_event(event)
@@ -240,7 +247,27 @@ class App:
                 if self.sim_state == "RUN" and not self.paused:
                     self.grid.update_pheromones(); random.shuffle(self.agents)
                     for agent in self.agents:
-                        dx, dy, _ = agent.think(self.grid, self.step)
+                        if not agent.alive: continue
+                        dx, dy, action_levels = agent.think(self.grid, self.step)
+                        
+                        # Handle Killing
+                        if self.enabled_traits["Kill"]:
+                            kill_val = math.tanh(action_levels[A_KILL])
+                            if kill_val > 0.5:
+                                # Target cell ahead
+                                fdx, fdy = agent.last_move
+                                if fdx == 0 and fdy == 0: fdx = 1 # Default forward
+                                tx, ty = agent.x + fdx, agent.y + fdy
+                                if 0 <= tx < GRID_SIZE and 0 <= ty < GRID_SIZE:
+                                    target_id = self.grid.data[tx][ty]
+                                    if target_id > 0: # It's an agent
+                                        for victim in self.agents:
+                                            if victim.id == target_id:
+                                                victim.alive = False
+                                                self.grid.clear(tx, ty)
+                                                break
+                        
+                        # Handle Movement
                         if dx != 0 or dy != 0:
                             nx, ny = agent.x + dx, agent.y + dy
                             if 0 <= nx < GRID_SIZE and 0 <= ny < GRID_SIZE and self.grid.is_empty(nx, ny):
@@ -251,13 +278,12 @@ class App:
             self.screen.fill(COLOR_BG); pygame.draw.rect(self.screen, COLOR_PANEL, (0, 0, PANEL_WIDTH, SIM_HEIGHT)); pygame.draw.line(self.screen, (100, 100, 100), (PANEL_WIDTH, 0), (PANEL_WIDTH, WINDOW_HEIGHT))
             for btn in self.buttons: btn.draw(self.screen, self.font)
             for sld in self.sliders: sld.draw(self.screen, self.font)
-            for i, line in enumerate([f"Gen: {self.generation}  Step: {self.step}", f"Pop: {len(self.agents)}  FPS: {self.clock.get_fps():.1f}"]):
+            for i, line in enumerate([f"Gen: {self.generation}  Step: {self.step}", f"Pop: {len([a for a in self.agents if a.alive])}  FPS: {self.clock.get_fps():.1f}"]):
                 self.screen.blit(self.font.render(line, True, COLOR_TEXT), (20, 450 + i*20))
             draw_brain(self.screen, self.selected_agent, pygame.Rect(10, SIM_HEIGHT - 300, PANEL_WIDTH - 20, 290), self.small_font, pygame.mouse.get_pos(), hide_dead=self.hide_dead_nodes)
-            if self.selected_agent: self.screen.blit(self.font.render(f"ID: {self.selected_agent.id}", True, COLOR_HIGHLIGHT), (20, SIM_HEIGHT - 320))
+            if self.selected_agent: self.screen.blit(self.font.render(f"ID: {self.selected_agent.id} {'(DEAD)' if not self.selected_agent.alive else ''}", True, COLOR_HIGHLIGHT), (20, SIM_HEIGHT - 320))
             
             sim_rect = pygame.Rect(SIM_OFFSET_X, SIM_OFFSET_Y, GRID_SIZE*CELL_SIZE, GRID_SIZE*CELL_SIZE); pygame.draw.rect(self.screen, (0, 0, 0), sim_rect)
-            
             ph_view = (self.grid.pheromones * 255).astype(np.uint8)
             for x in range(GRID_SIZE):
                 for y in range(GRID_SIZE):
@@ -265,10 +291,13 @@ class App:
                     if val > 10: pygame.draw.rect(self.screen, (0, 0, val), (SIM_OFFSET_X + x * CELL_SIZE, SIM_OFFSET_Y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE))
                     if self.grid.is_safe_tile(x, y): pygame.draw.rect(self.screen, COLOR_SAFE_ZONE, (SIM_OFFSET_X + x * CELL_SIZE, SIM_OFFSET_Y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE))
                     if self.grid.is_barrier(x, y): pygame.draw.rect(self.screen, COLOR_BARRIER, (SIM_OFFSET_X + x * CELL_SIZE, SIM_OFFSET_Y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE))
-            
             for agent in self.agents:
+                if not agent.alive: continue
                 rect = (SIM_OFFSET_X + agent.x * CELL_SIZE, SIM_OFFSET_Y + agent.y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
-                pygame.draw.rect(self.screen, agent.color, rect)
+                # Visual Feedback: Aggressive agents turn redder
+                color = list(agent.color)
+                if agent.kill_intent > 0.5: color = (255, 0, 0)
+                pygame.draw.rect(self.screen, color, rect)
                 if agent == self.selected_agent: pygame.draw.rect(self.screen, COLOR_HIGHLIGHT, rect, 2)
             pygame.draw.rect(self.screen, (100, 100, 100), sim_rect, 1)
             if not self.input_mode and self.sim_state == "EDIT" and self.tool_mode != 0 and gx != -1:
