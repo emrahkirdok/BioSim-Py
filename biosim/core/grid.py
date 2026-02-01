@@ -1,5 +1,6 @@
 import random
 import math
+import numpy as np
 from biosim.core.constants import BARRIER
 
 class Grid:
@@ -8,8 +9,9 @@ class Grid:
         # data: 0=Empty, -1=Barrier, >0=AgentID
         self.data = [[0 for _ in range(size)] for _ in range(size)]
         self.safe_zones = [[False for _ in range(size)] for _ in range(size)]
-        # Pheromones: Float 0.0 - 1.0
-        self.pheromones = [[0.0 for _ in range(size)] for _ in range(size)]
+        
+        # Pheromones: NumPy float array for performance
+        self.pheromones = np.zeros((size, size), dtype=np.float32)
 
     def is_empty(self, x, y):
         if 0 <= x < self.size and 0 <= y < self.size:
@@ -43,10 +45,9 @@ class Grid:
         if 0 <= x < self.size and 0 <= y < self.size:
             self.data[x][y] = 0
             
-    # --- Pheromone Logic ---
+    # --- Pheromone Logic (Vectorized) ---
     def add_pheromone(self, x, y, amount):
         if 0 <= x < self.size and 0 <= y < self.size:
-            # Cap at 1.0
             self.pheromones[x][y] = min(1.0, self.pheromones[x][y] + amount)
             
     def get_pheromone(self, x, y):
@@ -55,17 +56,34 @@ class Grid:
         return 0.0
         
     def update_pheromones(self):
-        """Decay all pheromones."""
-        decay_rate = 0.95
-        # Optimized loop? In pure python 128x128 = 16k is borderline.
-        # We might need to skip empty cells if possible, but we don't know which are empty.
-        # Let's try raw iteration.
-        for x in range(self.size):
-            for y in range(self.size):
-                if self.pheromones[x][y] > 0.01: # Optimization: Ignore negligible values
-                    self.pheromones[x][y] *= decay_rate
-                else:
-                    self.pheromones[x][y] = 0.0
+        """Vectorized Decay and Diffusion using NumPy."""
+        # 1. Decay
+        decay_factor = 0.98
+        self.pheromones *= decay_factor
+        
+        # 2. Diffusion (3x3 Box Blur)
+        # We use slices to shift the array in 8 directions and average
+        # This is extremely fast compared to loops.
+        diff = 0.1 # Diffusion rate
+        
+        # Calculate neighbor sum using slicing (ignoring edges for simplicity)
+        neighbor_sum = np.zeros_like(self.pheromones)
+        neighbor_sum[1:-1, 1:-1] = (
+            self.pheromones[:-2, 1:-1] +  # Top
+            self.pheromones[2:, 1:-1] +   # Bottom
+            self.pheromones[1:-1, :-2] +  # Left
+            self.pheromones[1:-1, 2:] +   # Right
+            self.pheromones[:-2, :-2] +   # Top-Left
+            self.pheromones[:-2, 2:] +    # Top-Right
+            self.pheromones[2:, :-2] +    # Bottom-Left
+            self.pheromones[2:, 2:]       # Bottom-Right
+        ) / 8.0
+        
+        # Apply diffusion formula
+        self.pheromones = (1.0 - diff) * self.pheromones + diff * neighbor_sum
+        
+        # Clip to ensure stability
+        self.pheromones = np.clip(self.pheromones, 0, 1.0)
 
     def find_empty_location(self):
         for _ in range(100): 

@@ -2,6 +2,7 @@ import sys
 import random
 import pygame
 import os
+import numpy as np
 
 from biosim.core.constants import *
 from biosim.core.grid import Grid, is_safe
@@ -37,7 +38,7 @@ class App:
     def __init__(self):
         pygame.init()
         self.screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
-        pygame.display.set_caption("BioSim Python Port")
+        pygame.display.set_caption("BioSim Python Port - Swarm Mode")
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("monospace", 14)
         self.small_font = pygame.font.SysFont("monospace", 10)
@@ -68,6 +69,10 @@ class App:
         self.generation = 1
         self.step = 0
         
+        # Performance Cache
+        self.pheromone_surf = pygame.Surface((GRID_SIZE, GRID_SIZE))
+        self.pheromone_surf.set_colorkey((0,0,0))
+        
         self.init_ui()
 
     def sync_genetic_config(self):
@@ -88,21 +93,18 @@ class App:
         self.btn_clear = Button(190, 20, 60, 30, "Clear", self.clear_grid)
         self.btn_save = Button(20, 60, 125, 30, "Save", self.prompt_save)
         self.btn_load = Button(155, 60, 125, 30, "Load", self.prompt_load)
-        
         y_tool = 100
         self.btn_tool_sel = Button(20, y_tool, 60, 30, "Sel", lambda: self.set_tool(0))
         self.btn_tool_bar = Button(90, y_tool, 60, 30, "Wall", lambda: self.set_tool(1))
         self.btn_tool_saf = Button(160, y_tool, 60, 30, "Zone", lambda: self.set_tool(2))
         self.btn_tool_era = Button(230, y_tool, 60, 30, "Erase", lambda: self.set_tool(3))
-        
         y_toggle = 140
         self.btn_tog_vis = Button(20, y_toggle, 50, 20, "Vis", lambda: self.toggle_trait("Vision"))
         self.btn_tog_sml = Button(75, y_toggle, 50, 20, "Sml", lambda: self.toggle_trait("Smell"))
         self.btn_tog_osc = Button(130, y_toggle, 50, 20, "Osc", lambda: self.toggle_trait("Osc"))
         self.btn_tog_mem = Button(185, y_toggle, 50, 20, "Mem", lambda: self.toggle_trait("Mem"))
         self.btn_tog_emt = Button(240, y_toggle, 50, 20, "Emt", lambda: self.toggle_trait("Emit"))
-        
-        y_slide = 185 # Nudged lower from 175
+        y_slide = 185
         gap = 33
         self.sliders = [
             Slider(20, y_slide, 210, 12, 0.0, 0.1, self.mutation_rate, "Mut Rate", self.set_mut_rate),
@@ -114,21 +116,14 @@ class App:
             Slider(20, y_slide+gap*6, 210, 12, 4, 32, self.genome_len, "Genome Len", self.set_genome_len, int_mode=True),
             Slider(20, y_slide+gap*7, 210, 12, 100, 2000, self.steps_per_gen, "Steps/Gen", self.set_steps, int_mode=True)
         ]
-        
-        # Nudged button to right (x=120) to avoid ID overlap
         self.btn_prune = Button(130, SIM_HEIGHT - 330, 150, 25, "Hide Dead Nodes", self.toggle_prune)
-        
         self.buttons = [self.btn_start, self.btn_pause, self.btn_clear, self.btn_save, self.btn_load,
                         self.btn_tool_sel, self.btn_tool_bar, self.btn_tool_saf, self.btn_tool_era,
                         self.btn_tog_vis, self.btn_tog_sml, self.btn_tog_osc, self.btn_tog_mem, self.btn_tog_emt,
                         self.btn_prune]
 
-    def toggle_trait(self, trait):
-        self.enabled_traits[trait] = not self.enabled_traits[trait]
-        self.sync_genetic_config()
-
+    def toggle_trait(self, trait): self.enabled_traits[trait] = not self.enabled_traits[trait]; self.sync_genetic_config()
     def toggle_prune(self): self.hide_dead_nodes = not self.hide_dead_nodes
-
     def prompt_save(self): self.input_mode, self.input_text = "SAVE", "level.json"
     def prompt_load(self): self.input_mode, self.input_text = "LOAD", "level.json"
 
@@ -136,8 +131,7 @@ class App:
         params = {"gen": self.generation, "step": self.step, "mut": self.mutation_rate, "ins": self.insertion_rate,
                   "del": self.deletion_rate, "uneq": self.unequal_rate, "pop": self.pop_size, "glen": self.genome_len,
                   "steps": self.steps_per_gen, "traits": self.enabled_traits}
-        save_simulation(self.input_text, self.grid, self.agents, params)
-        self.input_mode = None
+        save_simulation(self.input_text, self.grid, self.agents, params); self.input_mode = None
 
     def perform_load(self):
         res = load_simulation(self.input_text)
@@ -147,10 +141,8 @@ class App:
             self.mutation_rate, self.insertion_rate = params.get("mut", 0.01), params.get("ins", 0.01)
             self.deletion_rate, self.unequal_rate = params.get("del", 0.01), params.get("uneq", 0.0)
             self.pop_size, self.genome_len, self.steps_per_gen = params.get("pop", 1000), params.get("glen", 12), params.get("steps", 300)
-            self.enabled_traits = params.get("traits", self.enabled_traits)
-            self.sync_genetic_config()
-            self.sliders[0].value, self.sliders[1].value = self.mutation_rate, self.insertion_rate
-            self.sliders[2].value, self.sliders[3].value = self.deletion_rate, self.unequal_rate
+            self.enabled_traits = params.get("traits", self.enabled_traits); self.sync_genetic_config()
+            for i, p in enumerate([self.mutation_rate, self.insertion_rate, self.deletion_rate, self.unequal_rate]): self.sliders[i].value = p
             self.sliders[5].value, self.sliders[6].value, self.sliders[7].value = self.pop_size, self.genome_len, self.steps_per_gen
             self.sim_state, self.paused, self.selected_agent = "RUN", True, None
         self.input_mode = None
@@ -171,7 +163,8 @@ class App:
     def set_steps(self, val): self.steps_per_gen = int(val)
 
     def populate_world(self):
-        self.agents, self.grid.pheromones = [], [[0.0 for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
+        self.agents = []
+        self.grid.pheromones.fill(0)
         for x in range(GRID_SIZE):
             for y in range(GRID_SIZE):
                 if not self.grid.is_barrier(x, y): self.grid.set(x, y, 0)
@@ -222,9 +215,9 @@ class App:
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1: mouse_down = True
                 elif event.type == pygame.MOUSEBUTTONUP: mouse_down = False
 
+            mx, my = pygame.mouse.get_pos()
+            gx, gy = (mx - SIM_OFFSET_X) // CELL_SIZE if mx > PANEL_WIDTH and my < SIM_HEIGHT else -1, (my - SIM_OFFSET_Y) // CELL_SIZE if mx > PANEL_WIDTH and my < SIM_HEIGHT else -1
             if not self.input_mode:
-                mx, my = pygame.mouse.get_pos()
-                gx, gy = (mx - SIM_OFFSET_X) // CELL_SIZE if mx > PANEL_WIDTH and my < SIM_HEIGHT else -1, (my - SIM_OFFSET_Y) // CELL_SIZE if mx > PANEL_WIDTH and my < SIM_HEIGHT else -1
                 if mouse_down and gx != -1:
                     if self.sim_state == "EDIT" and self.tool_mode != 0:
                         r = self.brush_size - 1
@@ -256,16 +249,24 @@ class App:
             for sld in self.sliders: sld.draw(self.screen, self.font)
             for i, line in enumerate([f"Gen: {self.generation}  Step: {self.step}", f"Pop: {len(self.agents)}  FPS: {self.clock.get_fps():.1f}"]):
                 self.screen.blit(self.font.render(line, True, COLOR_TEXT), (20, 450 + i*20))
-            brain_rect = pygame.Rect(10, SIM_HEIGHT - 300, PANEL_WIDTH - 20, 290)
-            draw_brain(self.screen, self.selected_agent, brain_rect, self.small_font, pygame.mouse.get_pos(), hide_dead=self.hide_dead_nodes)
+            draw_brain(self.screen, self.selected_agent, pygame.Rect(10, SIM_HEIGHT - 300, PANEL_WIDTH - 20, 290), self.small_font, pygame.mouse.get_pos(), hide_dead=self.hide_dead_nodes)
             if self.selected_agent: self.screen.blit(self.font.render(f"ID: {self.selected_agent.id}", True, COLOR_HIGHLIGHT), (20, SIM_HEIGHT - 320))
+            
             sim_rect = pygame.Rect(SIM_OFFSET_X, SIM_OFFSET_Y, GRID_SIZE*CELL_SIZE, GRID_SIZE*CELL_SIZE); pygame.draw.rect(self.screen, (0, 0, 0), sim_rect)
+            
+            # --- Faster Pheromone Rendering ---
+            # Create a 2D array of blue intensities based on NumPy pheromones
+            ph_view = (self.grid.pheromones * 255).astype(np.uint8)
+            # Only draw where ph > 10 to save time? Or just draw all.
+            # Using surfarray would be best but let's do a slightly optimized loop.
             for x in range(GRID_SIZE):
                 for y in range(GRID_SIZE):
-                    ph = self.grid.get_pheromone(x, y)
-                    if ph > 0.1: pygame.draw.rect(self.screen, (0, 0, int(ph * 255)), (SIM_OFFSET_X + x * CELL_SIZE, SIM_OFFSET_Y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE))
+                    val = ph_view[x, y]
+                    if val > 10:
+                        pygame.draw.rect(self.screen, (0, 0, val), (SIM_OFFSET_X + x * CELL_SIZE, SIM_OFFSET_Y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE))
                     if self.grid.is_safe_tile(x, y): pygame.draw.rect(self.screen, COLOR_SAFE_ZONE, (SIM_OFFSET_X + x * CELL_SIZE, SIM_OFFSET_Y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE))
                     if self.grid.is_barrier(x, y): pygame.draw.rect(self.screen, COLOR_BARRIER, (SIM_OFFSET_X + x * CELL_SIZE, SIM_OFFSET_Y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE))
+            
             for agent in self.agents:
                 rect = (SIM_OFFSET_X + agent.x * CELL_SIZE, SIM_OFFSET_Y + agent.y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
                 pygame.draw.rect(self.screen, agent.color, rect)
