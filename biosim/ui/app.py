@@ -17,10 +17,8 @@ from biosim.ui.rendering import draw_brain
 PANEL_WIDTH = 300
 SIM_WIDTH = 900
 SIM_HEIGHT = 850
-BOTTOM_BAR_HEIGHT = 50 
-
 WINDOW_WIDTH = PANEL_WIDTH + SIM_WIDTH
-WINDOW_HEIGHT = SIM_HEIGHT + BOTTOM_BAR_HEIGHT
+WINDOW_HEIGHT = SIM_HEIGHT # Removed BOTTOM_BAR_HEIGHT
 
 GRID_SIZE = 128
 CELL_SIZE = min((SIM_WIDTH - 20) // GRID_SIZE, (SIM_HEIGHT - 20) // GRID_SIZE)
@@ -57,6 +55,7 @@ class App:
         self.insertion_rate = 0.01
         self.deletion_rate = 0.01
         self.unequal_rate = 0.0 
+        
         self.brush_size = 1
         self.pop_size = 1000
         self.genome_len = 12
@@ -91,8 +90,10 @@ class App:
         self.btn_start = Button(20, 20, 90, 30, "Start", self.toggle_run)
         self.btn_pause = Button(120, 20, 60, 30, "Pause", self.toggle_pause)
         self.btn_clear = Button(190, 20, 60, 30, "Clear", self.clear_grid)
+        
         self.btn_save = Button(20, 60, 125, 30, "Save", self.prompt_save)
         self.btn_load = Button(155, 60, 125, 30, "Load", self.prompt_load)
+        
         y_tool = 100
         self.btn_tool_sel = Button(20, y_tool, 60, 30, "Sel", lambda: self.set_tool(0))
         self.btn_tool_bar = Button(90, y_tool, 60, 30, "Wall", lambda: self.set_tool(1))
@@ -129,18 +130,27 @@ class App:
                         self.btn_tog_vis, self.btn_tog_sml, self.btn_tog_osc, self.btn_tog_mem, self.btn_tog_emt, self.btn_tog_kil,
                         self.btn_prune, self.btn_spawn_away]
 
-    def toggle_trait(self, trait): self.enabled_traits[trait] = not self.enabled_traits[trait]; self.sync_genetic_config()
+    def toggle_trait(self, trait):
+        self.enabled_traits[trait] = not self.enabled_traits[trait]
+        self.sync_genetic_config()
+
     def toggle_prune(self): self.hide_dead_nodes = not self.hide_dead_nodes
     def toggle_spawn_away(self): self.spawn_away = not self.spawn_away
 
-    def prompt_save(self): self.input_mode, self.input_text = "SAVE", "level.json"
-    def prompt_load(self): self.input_mode, self.input_text = "LOAD", "level.json"
+    def prompt_save(self):
+        self.input_mode = "SAVE"
+        self.input_text = "level.json"
+        
+    def prompt_load(self):
+        self.input_mode = "LOAD"
+        self.input_text = "level.json"
 
     def perform_save(self):
         params = {"gen": self.generation, "step": self.step, "mut": self.mutation_rate, "ins": self.insertion_rate,
                   "del": self.deletion_rate, "uneq": self.unequal_rate, "pop": self.pop_size, "glen": self.genome_len,
                   "steps": self.steps_per_gen, "traits": self.enabled_traits, "spawn_away": self.spawn_away}
-        save_simulation(self.input_text, self.grid, self.agents, params); self.input_mode = None
+        save_simulation(self.input_text, self.grid, self.agents, params)
+        self.input_mode = None
 
     def perform_load(self):
         res = load_simulation(self.input_text)
@@ -151,7 +161,8 @@ class App:
             self.deletion_rate, self.unequal_rate = params.get("del", 0.01), params.get("uneq", 0.0)
             self.pop_size, self.genome_len, self.steps_per_gen = params.get("pop", 1000), params.get("glen", 12), params.get("steps", 300)
             self.spawn_away = params.get("spawn_away", False)
-            self.enabled_traits = params.get("traits", self.enabled_traits); self.sync_genetic_config()
+            self.enabled_traits = params.get("traits", self.enabled_traits)
+            self.sync_genetic_config()
             for i, p in enumerate([self.mutation_rate, self.insertion_rate, self.deletion_rate, self.unequal_rate]): self.sliders[i].value = p
             self.sliders[5].value, self.sliders[6].value, self.sliders[7].value = self.pop_size, self.genome_len, self.steps_per_gen
             self.sim_state, self.paused, self.selected_agent = "RUN", True, None
@@ -183,7 +194,6 @@ class App:
             if loc: x, y = loc; self.agents.append(Agent(x, y, genome_length=self.genome_len, agent_id=i+1)); self.grid.set(x, y, i+1)
 
     def spawn_next_generation(self):
-        # Only survivors breed
         survivors = [a for a in self.agents if a.alive and is_safe(a, self.grid)]
         num_survivors = len(survivors)
         for x in range(GRID_SIZE):
@@ -249,25 +259,17 @@ class App:
                     for agent in self.agents:
                         if not agent.alive: continue
                         dx, dy, action_levels = agent.think(self.grid, self.step)
-                        
-                        # Handle Killing
                         if self.enabled_traits["Kill"]:
                             kill_val = math.tanh(action_levels[A_KILL])
                             if kill_val > 0.5:
-                                # Target cell ahead
                                 fdx, fdy = agent.last_move
-                                if fdx == 0 and fdy == 0: fdx = 1 # Default forward
+                                if fdx == 0 and fdy == 0: fdx = 1
                                 tx, ty = agent.x + fdx, agent.y + fdy
                                 if 0 <= tx < GRID_SIZE and 0 <= ty < GRID_SIZE:
                                     target_id = self.grid.data[tx][ty]
-                                    if target_id > 0: # It's an agent
+                                    if target_id > 0:
                                         for victim in self.agents:
-                                            if victim.id == target_id:
-                                                victim.alive = False
-                                                self.grid.clear(tx, ty)
-                                                break
-                        
-                        # Handle Movement
+                                            if victim.id == target_id: victim.alive = False; self.grid.clear(tx, ty); break
                         if dx != 0 or dy != 0:
                             nx, ny = agent.x + dx, agent.y + dy
                             if 0 <= nx < GRID_SIZE and 0 <= ny < GRID_SIZE and self.grid.is_empty(nx, ny):
@@ -294,7 +296,6 @@ class App:
             for agent in self.agents:
                 if not agent.alive: continue
                 rect = (SIM_OFFSET_X + agent.x * CELL_SIZE, SIM_OFFSET_Y + agent.y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
-                # Visual Feedback: Aggressive agents turn redder
                 color = list(agent.color)
                 if agent.kill_intent > 0.5: color = (255, 0, 0)
                 pygame.draw.rect(self.screen, color, rect)
@@ -302,9 +303,7 @@ class App:
             pygame.draw.rect(self.screen, (100, 100, 100), sim_rect, 1)
             if not self.input_mode and self.sim_state == "EDIT" and self.tool_mode != 0 and gx != -1:
                 r, size = self.brush_size - 1, (2*(self.brush_size-1)+1)*CELL_SIZE; overlay = pygame.Surface((size, size), pygame.SRCALPHA); overlay.fill((255, 255, 255, 100)); self.screen.blit(overlay, (SIM_OFFSET_X + (gx - r) * CELL_SIZE, SIM_OFFSET_Y + (gy - r) * CELL_SIZE))
-            pygame.draw.rect(self.screen, (30, 30, 35), (0, SIM_HEIGHT, WINDOW_WIDTH, BOTTOM_BAR_HEIGHT)); pygame.draw.line(self.screen, (100, 100, 100), (0, SIM_HEIGHT), (WINDOW_WIDTH, SIM_HEIGHT))
-            if self.selected_agent:
-                dna = gen.genome_to_hex(self.selected_agent.genome); self.screen.blit(self.font.render("Genome:", True, (150, 150, 150)), (10, SIM_HEIGHT + 15)); self.screen.blit(self.font.render(dna[:120], True, (100, 200, 255)), (80, SIM_HEIGHT + 15))
+            
             if self.input_mode:
                 dr = pygame.Rect(WINDOW_WIDTH//2 - 150, WINDOW_HEIGHT//2 - 50, 300, 100); pygame.draw.rect(self.screen, (50, 50, 60), dr); pygame.draw.rect(self.screen, (200, 200, 200), dr, 2)
                 self.screen.blit(self.font.render("Save File:" if self.input_mode == "SAVE" else "Load File:", True, (255, 255, 255)), (dr.x + 10, dr.y + 10)); self.screen.blit(self.font.render(self.input_text + "|", True, (100, 255, 100)), (dr.x + 10, dr.y + 50))
