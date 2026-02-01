@@ -49,9 +49,6 @@ def genome_to_hex(genome):
 
 def genome_from_hex(hex_str):
     genes = []
-    # Ensure 8-char alignment for safety, though hybrid genes are allowed
-    # If a split happened mid-gene, the new hex string is still valid hex, 
-    # just representing a fused gene.
     for i in range(0, len(hex_str), 8):
         chunk = hex_str[i:i+8]
         if len(chunk) == 8:
@@ -83,24 +80,42 @@ def mutate_genome(genome, mutation_rate=0.01):
             genome.append(make_random_gene())
 
 def recombine_dna(dna1, dna2):
+    """Standard Homologous Recombination (Equal length/pivot)."""
+    if not dna1: return dna2
+    if not dna2: return dna1
+    limit = min(len(dna1), len(dna2))
+    if limit < 2: return dna1
+    pivot = random.randint(1, limit - 1)
+    return dna1[:pivot] + dna2[pivot:]
+
+def recombine_dna_unequal(dna1, dna2):
     """
-    Homologous Recombination on DNA strings.
-    Allows crossover at any character index (4-bit boundary).
+    Unequal Recombination (Duplication/Deletion).
+    Allows pivots to be misaligned by +/- 16 chars (2 genes).
     """
     if not dna1: return dna2
     if not dna2: return dna1
     
-    limit = min(len(dna1), len(dna2))
-    if limit < 2: return dna1
+    len1, len2 = len(dna1), len(dna2)
     
-    pivot = random.randint(1, limit - 1)
-    return dna1[:pivot] + dna2[pivot:]
+    # Pivot 1 (Parent A)
+    pivot1 = random.randint(0, len1)
+    
+    # Pivot 2 (Parent B) with Jitter
+    jitter = random.randint(-16, 16)
+    pivot2 = max(0, min(len2, pivot1 + jitter))
+    
+    return dna1[:pivot1] + dna2[pivot2:]
 
 def crossover_genomes(g1, g2):
     """
     Wrapper that converts to DNA, recombines, and converts back.
+    Currently uses STANDARD recombination. Change to recombine_dna_unequal to enable duplication.
     """
     dna1 = genome_to_hex(g1)
     dna2 = genome_to_hex(g2)
+    
+    # Use standard for now
     child_dna = recombine_dna(dna1, dna2)
+    
     return genome_from_hex(child_dna)
