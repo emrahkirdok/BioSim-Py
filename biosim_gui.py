@@ -18,10 +18,8 @@ CELL_SIZE = min((SIM_WIDTH - 20) // GRID_SIZE, (SIM_HEIGHT - 20) // GRID_SIZE)
 SIM_OFFSET_X = PANEL_WIDTH + (SIM_WIDTH - (GRID_SIZE * CELL_SIZE)) // 2
 SIM_OFFSET_Y = (SIM_HEIGHT - (GRID_SIZE * CELL_SIZE)) // 2
 
-# Defaults
-DEFAULT_POPULATION = 1000
-DEFAULT_GENOME_LEN = 12
-DEFAULT_STEPS_PER_GEN = 300
+POPULATION_SIZE = 1000
+STEPS_PER_GEN = 300
 
 # Colors
 COLOR_BG = (20, 20, 20)
@@ -40,9 +38,9 @@ MUTATION_RATE = 0.01
 PAUSED = False
 
 # Params controlled by UI
-POPULATION_SIZE = DEFAULT_POPULATION
-GENOME_LENGTH = DEFAULT_GENOME_LEN
-STEPS_PER_GEN = DEFAULT_STEPS_PER_GEN
+POPULATION_SIZE = 1000
+GENOME_LENGTH = 12
+STEPS_PER_GEN = 300
 BRUSH_SIZE = 1
 
 SELECTED_AGENT = None
@@ -187,7 +185,7 @@ class Slider:
 
 # --- Visualization ---
 
-def draw_brain(screen, agent, rect, font):
+def draw_brain(screen, agent, rect, font, mouse_pos=None):
     pygame.draw.rect(screen, (30, 30, 40), rect)
     pygame.draw.rect(screen, (100, 100, 100), rect, 1)
     
@@ -196,7 +194,7 @@ def draw_brain(screen, agent, rect, font):
         screen.blit(text, text.get_rect(center=rect.center))
         return
 
-    node_radius = 5
+    node_radius = 6
     # Shift X positions to make room for text
     input_x = rect.left + 50  
     output_x = rect.right - 50
@@ -205,42 +203,43 @@ def draw_brain(screen, agent, rect, font):
     y_spacing = rect.height / (max(bs.NUM_SENSORS, bs.NUM_ACTIONS) + 1)
     
     node_positions = {}
+    hovered_node = None
     
-    # Inputs (Green)
+    # 1. Calculate Positions & Detect Hover
+    
+    # Inputs (Sensors)
     for i in range(bs.NUM_SENSORS):
         y = rect.top + (i + 1) * y_spacing
-        node_positions[(1, i)] = (input_x, y)
-        pygame.draw.circle(screen, (0, 200, 0), (input_x, y), node_radius)
-        
-        name = SENSOR_NAMES.get(i, str(i))
-        lbl = font.render(name, True, (150, 255, 150))
-        lbl_rect = lbl.get_rect(midright=(input_x - 10, y))
-        screen.blit(lbl, lbl_rect)
+        pos = (input_x, y)
+        node_positions[('S', i)] = pos
+        # Simple distance check for hover
+        if mouse_pos and math.hypot(mouse_pos[0]-pos[0], mouse_pos[1]-pos[1]) < node_radius + 5:
+            hovered_node = ('S', i)
 
-    # Outputs (Red)
+    # Outputs (Actions)
     for i in range(bs.NUM_ACTIONS):
         y = rect.top + (i + 1) * y_spacing
-        node_positions[('A', i)] = (output_x, y)
-        pygame.draw.circle(screen, (200, 0, 0), (output_x, y), node_radius)
-        
-        name = ACTION_NAMES.get(i, str(i))
-        lbl = font.render(name, True, (255, 150, 150))
-        lbl_rect = lbl.get_rect(midleft=(output_x + 10, y))
-        screen.blit(lbl, lbl_rect)
+        pos = (output_x, y)
+        node_positions[('A', i)] = pos
+        if mouse_pos and math.hypot(mouse_pos[0]-pos[0], mouse_pos[1]-pos[1]) < node_radius + 5:
+            hovered_node = ('A', i)
 
-    # Hidden (Gray)
+    # Hidden Neurons
     center_y = rect.centery
     radius = min(rect.width, rect.height) / 4
     for i in range(bs.MAX_NEURONS):
         angle = (2 * math.pi * i) / bs.MAX_NEURONS
         nx = hidden_x + math.cos(angle) * radius
         ny = center_y + math.sin(angle) * radius
-        node_positions[('N', i)] = (nx, ny)
-        c_val = int((agent.neurons[i] + 1) * 127)
-        pygame.draw.circle(screen, (c_val, c_val, c_val), (nx, ny), node_radius)
-        pygame.draw.circle(screen, (100, 100, 100), (nx, ny), node_radius, 1)
+        pos = (nx, ny)
+        node_positions[('N', i)] = pos
+        if mouse_pos and math.hypot(mouse_pos[0]-pos[0], mouse_pos[1]-pos[1]) < node_radius + 5:
+            hovered_node = ('N', i)
 
-    # Connections
+    # 2. Draw Connections
+    # We use a Surface for fading lines to allow alpha transparency
+    # But for simplicity, we can just pick colors carefully.
+    
     for g in agent.genome:
         start_key = ('S' if g.source_type == 1 else 'N', g.source_num % (bs.NUM_SENSORS if g.source_type==1 else bs.MAX_NEURONS))
         end_key = ('A' if g.sink_type == 1 else 'N', g.sink_num % (bs.NUM_ACTIONS if g.sink_type==1 else bs.MAX_NEURONS))
@@ -248,9 +247,82 @@ def draw_brain(screen, agent, rect, font):
         if start_key in node_positions and end_key in node_positions:
             start_pos = node_positions[start_key]
             end_pos = node_positions[end_key]
-            color = (0, 100, 255) if g.weight > 0 else (255, 50, 50)
-            width = max(1, int(abs(g.weight)))
+            
+            # Determine logic: Highlight if hovering over start OR end node
+            # If no hover, show all lines semi-bright
+            
+            is_highlighted = False
+            is_dimmed = False
+            
+            if hovered_node:
+                if start_key == hovered_node or end_key == hovered_node:
+                    is_highlighted = True
+                else:
+                    is_dimmed = True
+            
+            # Line Style
+            if is_highlighted:
+                width = max(2, int(abs(g.weight)) + 2)
+                # Bright Colors
+                color = (50, 200, 255) if g.weight > 0 else (255, 50, 50)
+            elif is_dimmed:
+                width = 1
+                # Very Dim Colors
+                color = (30, 30, 50) if g.weight > 0 else (50, 30, 30)
+            else:
+                # Default State
+                width = max(1, int(abs(g.weight)))
+                color = (0, 100, 200) if g.weight > 0 else (200, 0, 0)
+            
             pygame.draw.line(screen, color, start_pos, end_pos, width)
+
+    # 3. Draw Nodes (Last so they are on top)
+    
+    # Draw Sensor Nodes
+    for i in range(bs.NUM_SENSORS):
+        pos = node_positions[('S', i)]
+        is_hover = hovered_node == ('S', i)
+        
+        col = (100, 255, 100) if is_hover else (0, 200, 0)
+        pygame.draw.circle(screen, col, pos, node_radius + (2 if is_hover else 0))
+        
+        # Label logic: Show if hover, or if connected to hovered node? 
+        # For simplicity: Always show labels, but brighten relevant ones
+        text_col = (150, 255, 150)
+        if hovered_node and not is_hover: text_col = (60, 100, 60) # Dim others
+        
+        name = SENSOR_NAMES.get(i, str(i))
+        lbl = font.render(name, True, text_col)
+        lbl_rect = lbl.get_rect(midright=(pos[0] - 10, pos[1]))
+        screen.blit(lbl, lbl_rect)
+
+    # Draw Action Nodes
+    for i in range(bs.NUM_ACTIONS):
+        pos = node_positions[('A', i)]
+        is_hover = hovered_node == ('A', i)
+        
+        col = (255, 100, 100) if is_hover else (200, 0, 0)
+        pygame.draw.circle(screen, col, pos, node_radius + (2 if is_hover else 0))
+        
+        text_col = (255, 150, 150)
+        if hovered_node and not is_hover: text_col = (100, 60, 60)
+
+        name = ACTION_NAMES.get(i, str(i))
+        lbl = font.render(name, True, text_col)
+        lbl_rect = lbl.get_rect(midleft=(pos[0] + 10, pos[1]))
+        screen.blit(lbl, lbl_rect)
+
+    # Draw Hidden Nodes
+    for i in range(bs.MAX_NEURONS):
+        pos = node_positions[('N', i)]
+        is_hover = hovered_node == ('N', i)
+        
+        c_val = int((agent.neurons[i] + 1) * 127)
+        base_col = (c_val, c_val, c_val)
+        border_col = (255, 255, 255) if is_hover else (100, 100, 100)
+        
+        pygame.draw.circle(screen, base_col, pos, node_radius + (2 if is_hover else 0))
+        pygame.draw.circle(screen, border_col, pos, node_radius + (2 if is_hover else 0), 1)
 
 
 def main():
@@ -366,8 +438,7 @@ def main():
         if SIM_STATE == "RUN" and not PAUSED:
             random.shuffle(AGENTS)
             for agent in AGENTS:
-                # Need to update call to think() to pass GRID for raycasting
-                dx, dy, _ = agent.think(GRID, STEP) 
+                dx, dy, _ = agent.think(GRID, STEP)
                 if dx != 0 or dy != 0:
                     nx, ny = agent.x + dx, agent.y + dy
                     if 0 <= nx < GRID_SIZE and 0 <= ny < GRID_SIZE:
@@ -404,7 +475,10 @@ def main():
             screen.blit(font.render(line, True, COLOR_TEXT), (20, 330 + i*20))
 
         brain_rect = pygame.Rect(10, WINDOW_HEIGHT - 290, PANEL_WIDTH - 20, 280)
-        draw_brain(screen, SELECTED_AGENT, brain_rect, small_font)
+        
+        # Pass mouse position for hover
+        draw_brain(screen, SELECTED_AGENT, brain_rect, small_font, pygame.mouse.get_pos())
+        
         if SELECTED_AGENT:
             id_txt = font.render(f"Agent ID: {SELECTED_AGENT.id}", True, COLOR_HIGHLIGHT)
             screen.blit(id_txt, (20, WINDOW_HEIGHT - 310))
