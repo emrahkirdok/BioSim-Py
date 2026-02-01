@@ -1,18 +1,20 @@
 import sys
 import random
 import pygame
+import os
 
 from biosim.core.constants import *
 from biosim.core.grid import Grid, is_safe
 from biosim.core.agent import Agent
 from biosim.core.genome import crossover_genomes, mutate_genome, genome_to_hex
+from biosim.core.persistence import save_simulation, load_simulation
 from biosim.ui.widgets import Button, Slider
 from biosim.ui.rendering import draw_brain
 
 # Config
 PANEL_WIDTH = 300
 SIM_WIDTH = 900
-SIM_HEIGHT = 800
+SIM_HEIGHT = 850 # Increased height
 BOTTOM_BAR_HEIGHT = 50 
 
 WINDOW_WIDTH = PANEL_WIDTH + SIM_WIDTH
@@ -41,6 +43,8 @@ class App:
         self.small_font = pygame.font.SysFont("monospace", 10)
         
         self.sim_state = "EDIT"
+        self.input_mode = None 
+        self.input_text = ""
         self.tool_mode = 0
         self.paused = False
         
@@ -68,27 +72,31 @@ class App:
         self.btn_pause = Button(120, 20, 60, 30, "Pause", self.toggle_pause)
         self.btn_clear = Button(190, 20, 60, 30, "Clear", self.clear_grid)
         
-        self.btn_tool_sel = Button(20, 60, 60, 30, "Sel", lambda: self.set_tool(0))
-        self.btn_tool_bar = Button(90, 60, 60, 30, "Wall", lambda: self.set_tool(1))
-        self.btn_tool_saf = Button(160, 60, 60, 30, "Zone", lambda: self.set_tool(2))
-        self.btn_tool_era = Button(230, 60, 60, 30, "Erase", lambda: self.set_tool(3))
+        self.btn_save = Button(20, 60, 125, 30, "Save", self.prompt_save)
+        self.btn_load = Button(155, 60, 125, 30, "Load", self.prompt_load)
         
-        y = 110
+        y_tool = 110
+        self.btn_tool_sel = Button(20, y_tool, 60, 30, "Sel", lambda: self.set_tool(0))
+        self.btn_tool_bar = Button(90, y_tool, 60, 30, "Wall", lambda: self.set_tool(1))
+        self.btn_tool_saf = Button(160, y_tool, 60, 30, "Zone", lambda: self.set_tool(2))
+        self.btn_tool_era = Button(230, y_tool, 60, 30, "Erase", lambda: self.set_tool(3))
+        
+        y_slide = 160
         gap = 35
         
         self.sliders = [
-            Slider(20, y, 210, 12, 0.0, 0.1, self.mutation_rate, "Mut Rate", self.set_mut_rate),
-            Slider(20, y+gap, 210, 12, 0.0, 0.1, self.insertion_rate, "Ins Rate", self.set_ins_rate),
-            Slider(20, y+gap*2, 210, 12, 0.0, 0.1, self.deletion_rate, "Del Rate", self.set_del_rate),
-            Slider(20, y+gap*3, 210, 12, 0.0, 1.0, self.unequal_rate, "Unequal %", self.set_unequal_rate),
+            Slider(20, y_slide, 210, 12, 0.0, 0.1, self.mutation_rate, "Mut Rate", self.set_mut_rate),
+            Slider(20, y_slide+gap, 210, 12, 0.0, 0.1, self.insertion_rate, "Ins Rate", self.set_ins_rate),
+            Slider(20, y_slide+gap*2, 210, 12, 0.0, 0.1, self.deletion_rate, "Del Rate", self.set_del_rate),
+            Slider(20, y_slide+gap*3, 210, 12, 0.0, 1.0, self.unequal_rate, "Unequal %", self.set_unequal_rate),
             
-            Slider(20, y+gap*4, 210, 12, 1, 5, self.brush_size, "Brush Size", self.set_brush_size, int_mode=True),
-            Slider(20, y+gap*5, 210, 12, 100, 5000, self.pop_size, "Pop Size", self.set_pop_size, int_mode=True),
-            Slider(20, y+gap*6, 210, 12, 4, 32, self.genome_len, "Genome Len", self.set_genome_len, int_mode=True),
-            Slider(20, y+gap*7, 210, 12, 100, 2000, self.steps_per_gen, "Steps/Gen", self.set_steps, int_mode=True)
+            Slider(20, y_slide+gap*4, 210, 12, 1, 5, self.brush_size, "Brush Size", self.set_brush_size, int_mode=True),
+            Slider(20, y_slide+gap*5, 210, 12, 100, 5000, self.pop_size, "Pop Size", self.set_pop_size, int_mode=True),
+            Slider(20, y_slide+gap*6, 210, 12, 4, 32, self.genome_len, "Genome Len", self.set_genome_len, int_mode=True),
+            Slider(20, y_slide+gap*7, 210, 12, 100, 2000, self.steps_per_gen, "Steps/Gen", self.set_steps, int_mode=True)
         ]
         
-        self.buttons = [self.btn_start, self.btn_pause, self.btn_clear, 
+        self.buttons = [self.btn_start, self.btn_pause, self.btn_clear, self.btn_save, self.btn_load,
                         self.btn_tool_sel, self.btn_tool_bar, self.btn_tool_saf, self.btn_tool_era]
 
     # --- Callbacks ---
@@ -107,6 +115,56 @@ class App:
         self.grid = Grid(GRID_SIZE)
         self.agents = []
         self.selected_agent = None
+    
+    def prompt_save(self):
+        self.input_mode = "SAVE"
+        self.input_text = "level.json"
+        
+    def prompt_load(self):
+        self.input_mode = "LOAD"
+        self.input_text = "level.json"
+
+    def perform_save(self):
+        params = {
+            "gen": self.generation,
+            "step": self.step,
+            "mut": self.mutation_rate,
+            "ins": self.insertion_rate,
+            "del": self.deletion_rate,
+            "uneq": self.unequal_rate,
+            "pop": self.pop_size,
+            "glen": self.genome_len,
+            "steps": self.steps_per_gen
+        }
+        save_simulation(self.input_text, self.grid, self.agents, params)
+        self.input_mode = None
+        
+    def perform_load(self):
+        res = load_simulation(self.input_text)
+        if res:
+            self.grid, self.agents, params = res
+            self.generation = params.get("gen", 1)
+            self.step = params.get("step", 0)
+            self.mutation_rate = params.get("mut", 0.01)
+            self.insertion_rate = params.get("ins", 0.01)
+            self.deletion_rate = params.get("del", 0.01)
+            self.unequal_rate = params.get("uneq", 0.0)
+            self.pop_size = params.get("pop", 1000)
+            self.genome_len = params.get("glen", 12)
+            self.steps_per_gen = params.get("steps", 300)
+            
+            self.sliders[0].value = self.mutation_rate
+            self.sliders[1].value = self.insertion_rate
+            self.sliders[2].value = self.deletion_rate
+            self.sliders[3].value = self.unequal_rate
+            self.sliders[5].value = self.pop_size
+            self.sliders[6].value = self.genome_len
+            self.sliders[7].value = self.steps_per_gen
+            
+            self.sim_state = "RUN"
+            self.paused = True
+            self.selected_agent = None
+        self.input_mode = None
         
     def set_tool(self, mode): self.tool_mode = mode
     def set_mut_rate(self, val): self.mutation_rate = val
@@ -136,10 +194,12 @@ class App:
     def spawn_next_generation(self):
         survivors = [a for a in self.agents if is_safe(a, self.grid)]
         num_survivors = len(survivors)
+        
         for x in range(GRID_SIZE):
             for y in range(GRID_SIZE):
                 if not self.grid.is_barrier(x, y):
                     self.grid.set(x, y, 0)
+        
         new_agents = []
         if num_survivors == 0:
             for i in range(self.pop_size):
@@ -167,13 +227,23 @@ class App:
         running = True
         mouse_down = False
         
-        # Cursor surface for semi-transparent brush helper
-        cursor_surf = pygame.Surface((CELL_SIZE*11, CELL_SIZE*11), pygame.SRCALPHA)
-        
         while running:
             # Events
             for event in pygame.event.get():
                 if event.type == pygame.QUIT: running = False
+                
+                if self.input_mode:
+                    if event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_RETURN:
+                            if self.input_mode == "SAVE": self.perform_save()
+                            else: self.perform_load()
+                        elif event.key == pygame.K_BACKSPACE:
+                            self.input_text = self.input_text[:-1]
+                        elif event.key == pygame.K_ESCAPE:
+                            self.input_mode = None
+                        else:
+                            self.input_text += event.unicode
+                    continue
                 
                 self.btn_start.text = "Stop" if self.sim_state == "RUN" else "Start"
                 self.btn_pause.toggled = self.paused
@@ -188,55 +258,56 @@ class App:
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1: mouse_down = True
                 elif event.type == pygame.MOUSEBUTTONUP: mouse_down = False
 
-            # Interaction
-            mx, my = pygame.mouse.get_pos()
-            gx, gy = -1, -1
-            if mx > PANEL_WIDTH and my < SIM_HEIGHT:
-                gx = (mx - SIM_OFFSET_X) // CELL_SIZE
-                gy = (my - SIM_OFFSET_Y) // CELL_SIZE
-
-            if mouse_down:
-                if gx != -1:
-                    if self.sim_state == "EDIT" and self.tool_mode != 0:
-                        r = self.brush_size - 1
-                        for bx in range(gx - r, gx + r + 1):
-                            for by in range(gy - r, gy + r + 1):
-                                if 0 <= bx < GRID_SIZE and 0 <= by < GRID_SIZE:
-                                    if self.tool_mode == 1: self.grid.set(bx, by, BARRIER)
-                                    elif self.tool_mode == 2: self.grid.set_safe(bx, by, True)
-                                    elif self.tool_mode == 3: 
-                                        self.grid.set(bx, by, 0)
-                                        self.grid.set_safe(bx, by, False)
+            if not self.input_mode:
+                # Interaction
+                mx, my = pygame.mouse.get_pos()
+                
+                if mx > PANEL_WIDTH and my < SIM_HEIGHT:
+                    gx = (mx - SIM_OFFSET_X) // CELL_SIZE
+                    gy = (my - SIM_OFFSET_Y) // CELL_SIZE
                     
-                    if self.tool_mode == 0 and 0 <= gx < GRID_SIZE and 0 <= gy < GRID_SIZE:
-                        agent_id = self.grid.data[gx][gy]
-                        if agent_id > 0:
-                            for a in self.agents:
-                                if a.id == agent_id:
-                                    self.selected_agent = a
-                                    break
-                        else:
-                            self.selected_agent = None
+                    if mouse_down:
+                        if gx != -1:
+                            if self.sim_state == "EDIT" and self.tool_mode != 0:
+                                r = self.brush_size - 1
+                                for bx in range(gx - r, gx + r + 1):
+                                    for by in range(gy - r, gy + r + 1):
+                                        if 0 <= bx < GRID_SIZE and 0 <= by < GRID_SIZE:
+                                            if self.tool_mode == 1: self.grid.set(bx, by, BARRIER)
+                                            elif self.tool_mode == 2: self.grid.set_safe(bx, by, True)
+                                            elif self.tool_mode == 3: 
+                                                self.grid.set(bx, by, 0)
+                                                self.grid.set_safe(bx, by, False)
+                            
+                            if self.tool_mode == 0 and 0 <= gx < GRID_SIZE and 0 <= gy < GRID_SIZE:
+                                agent_id = self.grid.data[gx][gy]
+                                if agent_id > 0:
+                                    for a in self.agents:
+                                        if a.id == agent_id:
+                                            self.selected_agent = a
+                                            break
+                                else:
+                                    self.selected_agent = None
 
-            # Simulation
-            if self.sim_state == "RUN" and not self.paused:
-                random.shuffle(self.agents)
-                for agent in self.agents:
-                    dx, dy, _ = agent.think(self.grid, self.step)
-                    if dx != 0 or dy != 0:
-                        nx, ny = agent.x + dx, agent.y + dy
-                        if 0 <= nx < GRID_SIZE and 0 <= ny < GRID_SIZE:
-                            if self.grid.is_empty(nx, ny):
-                                self.grid.clear(agent.x, agent.y)
-                                agent.x, agent.y = nx, ny
-                                self.grid.set(nx, ny, agent.id)
-                                agent.last_move = (dx, dy)
-                self.step += 1
-                if self.step >= self.steps_per_gen:
-                    self.spawn_next_generation()
-                    self.step = 0
-                    self.generation += 1
-                    self.selected_agent = None
+                # Simulation
+                if self.sim_state == "RUN" and not self.paused:
+                    random.shuffle(self.agents)
+                    for agent in self.agents:
+                        dx, dy, _ = agent.think(self.grid, self.step)
+                        if dx != 0 or dy != 0:
+                            nx, ny = agent.x + dx, agent.y + dy
+                            if 0 <= nx < GRID_SIZE and 0 <= ny < GRID_SIZE:
+                                if self.grid.is_empty(nx, ny):
+                                    self.grid.clear(agent.x, agent.y)
+                                    agent.x, agent.y = nx, ny
+                                    self.grid.set(nx, ny, agent.id)
+                                    agent.last_move = (dx, dy)
+                    self.step += 1
+                    if self.step >= self.steps_per_gen:
+                        self.spawn_next_generation()
+                        self.step = 0
+                        self.generation += 1
+                        self.selected_agent = None
 
             # Render
             self.screen.fill(COLOR_BG)
@@ -249,21 +320,21 @@ class App:
             for sld in self.sliders: sld.draw(self.screen, self.font)
             
             stats = [
-                f"State: {self.sim_state}",
+                f"State: {self.sim_state} {'(PAUSED)' if self.paused else ''}",
                 f"Gen: {self.generation}",
                 f"Step: {self.step}/{self.steps_per_gen}",
                 f"Pop: {len(self.agents)}",
                 f"FPS: {self.clock.get_fps():.1f}"
             ]
             for i, line in enumerate(stats):
-                self.screen.blit(self.font.render(line, True, COLOR_TEXT), (20, 400 + i*20))
+                self.screen.blit(self.font.render(line, True, COLOR_TEXT), (20, 440 + i*20))
 
-            # Brain Viz
-            brain_rect = pygame.Rect(10, SIM_HEIGHT - 290, PANEL_WIDTH - 20, 280)
+            # Brain Viz (Pushed to bottom of panel area)
+            brain_rect = pygame.Rect(10, SIM_HEIGHT - 300, PANEL_WIDTH - 20, 290)
             draw_brain(self.screen, self.selected_agent, brain_rect, self.small_font, pygame.mouse.get_pos())
             if self.selected_agent:
                 id_txt = self.font.render(f"Agent ID: {self.selected_agent.id}", True, COLOR_HIGHLIGHT)
-                self.screen.blit(id_txt, (20, SIM_HEIGHT - 310))
+                self.screen.blit(id_txt, (20, SIM_HEIGHT - 320))
 
             # Sim View
             sim_rect = pygame.Rect(SIM_OFFSET_X, SIM_OFFSET_Y, GRID_SIZE*CELL_SIZE, GRID_SIZE*CELL_SIZE)
@@ -286,17 +357,15 @@ class App:
 
             pygame.draw.rect(self.screen, (100, 100, 100), sim_rect, 1)
             
-            # --- Brush Cursor Helper ---
-            if self.sim_state == "EDIT" and self.tool_mode != 0 and gx != -1:
-                r = self.brush_size - 1
-                size = (2 * r + 1) * CELL_SIZE
-                # Create semi-transparent overlay
-                overlay = pygame.Surface((size, size), pygame.SRCALPHA)
-                overlay.fill((255, 255, 255, 100)) # Semi-transparent white
-                # Center cursor on gx, gy
-                cx = SIM_OFFSET_X + (gx - r) * CELL_SIZE
-                cy = SIM_OFFSET_Y + (gy - r) * CELL_SIZE
-                self.screen.blit(overlay, (cx, cy))
+            if not self.input_mode and self.sim_state == "EDIT" and self.tool_mode != 0:
+                if gx >= 0 and gx < GRID_SIZE and gy >= 0 and gy < GRID_SIZE:
+                    r = self.brush_size - 1
+                    size = (2 * r + 1) * CELL_SIZE
+                    overlay = pygame.Surface((size, size), pygame.SRCALPHA)
+                    overlay.fill((255, 255, 255, 100))
+                    cx = SIM_OFFSET_X + (gx - r) * CELL_SIZE
+                    cy = SIM_OFFSET_Y + (gy - r) * CELL_SIZE
+                    self.screen.blit(overlay, (cx, cy))
 
             # Bottom Bar
             bottom_bar_rect = pygame.Rect(0, SIM_HEIGHT, WINDOW_WIDTH, BOTTOM_BAR_HEIGHT)
@@ -305,13 +374,24 @@ class App:
             
             if self.selected_agent:
                 dna = genome_to_hex(self.selected_agent.genome)
+                display_dna = dna[:120] + ("..." if len(dna) > 120 else "")
                 lbl = self.font.render("Genome:", True, (150, 150, 150))
                 self.screen.blit(lbl, (10, SIM_HEIGHT + 15))
-                dna_surf = self.font.render(dna, True, (100, 200, 255))
+                dna_surf = self.font.render(display_dna, True, (100, 200, 255))
                 self.screen.blit(dna_surf, (80, SIM_HEIGHT + 15))
             else:
                 hint = self.font.render("Select an agent to inspect its genome.", True, (100, 100, 100))
                 self.screen.blit(hint, (10, SIM_HEIGHT + 15))
+
+            if self.input_mode:
+                dialog_rect = pygame.Rect(WINDOW_WIDTH//2 - 150, WINDOW_HEIGHT//2 - 50, 300, 100)
+                pygame.draw.rect(self.screen, (50, 50, 60), dialog_rect)
+                pygame.draw.rect(self.screen, (200, 200, 200), dialog_rect, 2)
+                title = "Save File:" if self.input_mode == "SAVE" else "Load File:"
+                title_surf = self.font.render(title, True, (255, 255, 255))
+                self.screen.blit(title_surf, (dialog_rect.x + 10, dialog_rect.y + 10))
+                input_surf = self.font.render(self.input_text + "|", True, (100, 255, 100))
+                self.screen.blit(input_surf, (dialog_rect.x + 10, dialog_rect.y + 50))
 
             pygame.display.flip()
             self.clock.tick(60)
