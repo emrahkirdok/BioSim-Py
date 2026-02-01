@@ -20,6 +20,7 @@ class Agent:
         self.update_color()
 
     def update_color(self):
+        # Static color based on genome hash (Species ID)
         h = abs(hash(str([(g.source_num, g.sink_num) for g in self.genome])))
         self.color = [h % 255, (h // 255) % 255, (h // 65025) % 255]
 
@@ -40,7 +41,6 @@ class Agent:
         if index == S_LAST_MOVE_Y: return (self.last_move[1] + 1) / 2
         if index == S_OSC: return (math.sin(time_step * 0.1) + 1) / 2
         
-        # New Proximity Sensors
         dx, dy = self.last_move
         if dx == 0 and dy == 0: 
             dx, dy = 1, 0
@@ -51,9 +51,9 @@ class Agent:
             for d in range(1, probe_dist + 1):
                 nx, ny = self.x + dx * d, self.y + dy * d
                 if not (0 <= nx < grid.size and 0 <= ny < grid.size): 
-                    return (probe_dist - d) / probe_dist # Hit World Border
+                    return (probe_dist - d) / probe_dist 
                 if grid.is_barrier(nx, ny):
-                    return (probe_dist - d) / probe_dist # Hit Wall
+                    return (probe_dist - d) / probe_dist 
             return 0.0
             
         if index == S_DIST_SAFE_FWD:
