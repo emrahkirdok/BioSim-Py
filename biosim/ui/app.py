@@ -47,7 +47,9 @@ class App:
         self.input_text = ""
         self.tool_mode = 0
         self.paused = False
+        self.hide_dead_nodes = False
         
+        # Params
         self.mutation_rate = 0.01
         self.insertion_rate = 0.01
         self.deletion_rate = 0.01
@@ -100,7 +102,7 @@ class App:
         self.btn_tog_mem = Button(185, y_toggle, 50, 20, "Mem", lambda: self.toggle_trait("Mem"))
         self.btn_tog_emt = Button(240, y_toggle, 50, 20, "Emt", lambda: self.toggle_trait("Emit"))
         
-        y_slide = 175
+        y_slide = 185 # Nudged lower from 175
         gap = 33
         self.sliders = [
             Slider(20, y_slide, 210, 12, 0.0, 0.1, self.mutation_rate, "Mut Rate", self.set_mut_rate),
@@ -112,13 +114,20 @@ class App:
             Slider(20, y_slide+gap*6, 210, 12, 4, 32, self.genome_len, "Genome Len", self.set_genome_len, int_mode=True),
             Slider(20, y_slide+gap*7, 210, 12, 100, 2000, self.steps_per_gen, "Steps/Gen", self.set_steps, int_mode=True)
         ]
+        
+        # Nudged button to right (x=120) to avoid ID overlap
+        self.btn_prune = Button(130, SIM_HEIGHT - 330, 150, 25, "Hide Dead Nodes", self.toggle_prune)
+        
         self.buttons = [self.btn_start, self.btn_pause, self.btn_clear, self.btn_save, self.btn_load,
                         self.btn_tool_sel, self.btn_tool_bar, self.btn_tool_saf, self.btn_tool_era,
-                        self.btn_tog_vis, self.btn_tog_sml, self.btn_tog_osc, self.btn_tog_mem, self.btn_tog_emt]
+                        self.btn_tog_vis, self.btn_tog_sml, self.btn_tog_osc, self.btn_tog_mem, self.btn_tog_emt,
+                        self.btn_prune]
 
     def toggle_trait(self, trait):
         self.enabled_traits[trait] = not self.enabled_traits[trait]
         self.sync_genetic_config()
+
+    def toggle_prune(self): self.hide_dead_nodes = not self.hide_dead_nodes
 
     def prompt_save(self): self.input_mode, self.input_text = "SAVE", "level.json"
     def prompt_load(self): self.input_mode, self.input_text = "LOAD", "level.json"
@@ -207,6 +216,7 @@ class App:
                 self.btn_tool_saf.toggled = (self.tool_mode == 2); self.btn_tool_era.toggled = (self.tool_mode == 3)
                 self.btn_tog_vis.toggled, self.btn_tog_sml.toggled = self.enabled_traits["Vision"], self.enabled_traits["Smell"]
                 self.btn_tog_osc.toggled, self.btn_tog_mem.toggled, self.btn_tog_emt.toggled = self.enabled_traits["Osc"], self.enabled_traits["Mem"], self.enabled_traits["Emit"]
+                self.btn_prune.toggled = self.hide_dead_nodes
                 for btn in self.buttons: btn.handle_event(event)
                 for sld in self.sliders: sld.handle_event(event)
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1: mouse_down = True
@@ -245,9 +255,9 @@ class App:
             for btn in self.buttons: btn.draw(self.screen, self.font)
             for sld in self.sliders: sld.draw(self.screen, self.font)
             for i, line in enumerate([f"Gen: {self.generation}  Step: {self.step}", f"Pop: {len(self.agents)}  FPS: {self.clock.get_fps():.1f}"]):
-                self.screen.blit(self.font.render(line, True, COLOR_TEXT), (20, 440 + i*20))
+                self.screen.blit(self.font.render(line, True, COLOR_TEXT), (20, 450 + i*20))
             brain_rect = pygame.Rect(10, SIM_HEIGHT - 300, PANEL_WIDTH - 20, 290)
-            draw_brain(self.screen, self.selected_agent, brain_rect, self.small_font, pygame.mouse.get_pos())
+            draw_brain(self.screen, self.selected_agent, brain_rect, self.small_font, pygame.mouse.get_pos(), hide_dead=self.hide_dead_nodes)
             if self.selected_agent: self.screen.blit(self.font.render(f"ID: {self.selected_agent.id}", True, COLOR_HIGHLIGHT), (20, SIM_HEIGHT - 320))
             sim_rect = pygame.Rect(SIM_OFFSET_X, SIM_OFFSET_Y, GRID_SIZE*CELL_SIZE, GRID_SIZE*CELL_SIZE); pygame.draw.rect(self.screen, (0, 0, 0), sim_rect)
             for x in range(GRID_SIZE):
