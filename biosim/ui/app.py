@@ -10,6 +10,7 @@ from biosim.core.grid import Grid, is_safe
 from biosim.core.agent import Agent
 import biosim.core.genome as gen
 from biosim.core.persistence import save_simulation, load_simulation
+from biosim.core.analytics import Analytics
 from biosim.ui.widgets import Button, Slider
 from biosim.ui.rendering import draw_brain
 
@@ -18,7 +19,7 @@ PANEL_WIDTH = 300
 SIM_WIDTH = 900
 SIM_HEIGHT = 850
 WINDOW_WIDTH = PANEL_WIDTH + SIM_WIDTH
-WINDOW_HEIGHT = SIM_HEIGHT # Removed BOTTOM_BAR_HEIGHT
+WINDOW_HEIGHT = SIM_HEIGHT
 
 GRID_SIZE = 128
 CELL_SIZE = min((SIM_WIDTH - 20) // GRID_SIZE, (SIM_HEIGHT - 20) // GRID_SIZE)
@@ -55,7 +56,6 @@ class App:
         self.insertion_rate = 0.01
         self.deletion_rate = 0.01
         self.unequal_rate = 0.0 
-        
         self.brush_size = 1
         self.pop_size = 1000
         self.genome_len = 12
@@ -70,6 +70,9 @@ class App:
         self.generation = 1
         self.step = 0
         
+        self.analytics = Analytics()
+        self.current_gen_kills = 0
+        
         self.init_ui()
 
     def sync_genetic_config(self):
@@ -80,7 +83,6 @@ class App:
         if self.enabled_traits["Mem"]: sensors += SENSOR_GROUPS["Mem"]
         if self.enabled_traits["Kill"]: sensors += SENSOR_GROUPS["Danger"]
         gen.ENABLED_SENSORS = sorted(list(set(sensors)))
-        
         actions = [A_MOVE_X, A_MOVE_Y, A_MOVE_FWD]
         if self.enabled_traits["Emit"]: actions += ACTION_GROUPS["Emit"]
         if self.enabled_traits["Kill"]: actions += ACTION_GROUPS["Kill"]
@@ -90,7 +92,6 @@ class App:
         self.btn_start = Button(20, 20, 90, 30, "Start", self.toggle_run)
         self.btn_pause = Button(120, 20, 60, 30, "Pause", self.toggle_pause)
         self.btn_clear = Button(190, 20, 60, 30, "Clear", self.clear_grid)
-        
         self.btn_save = Button(20, 60, 125, 30, "Save", self.prompt_save)
         self.btn_load = Button(155, 60, 125, 30, "Load", self.prompt_load)
         
@@ -122,35 +123,27 @@ class App:
             Slider(20, y_slide+gap*7, 210, 12, 100, 2000, self.steps_per_gen, "Steps/Gen", self.set_steps, int_mode=True)
         ]
         
-        self.btn_prune = Button(130, SIM_HEIGHT - 330, 150, 25, "Hide Dead Nodes", self.toggle_prune)
-        self.btn_spawn_away = Button(20, SIM_HEIGHT - 330, 100, 25, "Spawn Away", self.toggle_spawn_away)
+        # Bottom controls
+        self.btn_stats = Button(20, 445, 100, 25, "Live Stats", lambda: self.analytics.open_window())
+        self.btn_prune = Button(130, WINDOW_HEIGHT - 330, 150, 25, "Hide Dead Nodes", self.toggle_prune)
+        self.btn_spawn_away = Button(20, WINDOW_HEIGHT - 330, 100, 25, "Spawn Away", self.toggle_spawn_away)
         
         self.buttons = [self.btn_start, self.btn_pause, self.btn_clear, self.btn_save, self.btn_load,
                         self.btn_tool_sel, self.btn_tool_bar, self.btn_tool_saf, self.btn_tool_era,
                         self.btn_tog_vis, self.btn_tog_sml, self.btn_tog_osc, self.btn_tog_mem, self.btn_tog_emt, self.btn_tog_kil,
-                        self.btn_prune, self.btn_spawn_away]
+                        self.btn_stats, self.btn_prune, self.btn_spawn_away]
 
-    def toggle_trait(self, trait):
-        self.enabled_traits[trait] = not self.enabled_traits[trait]
-        self.sync_genetic_config()
-
+    def toggle_trait(self, trait): self.enabled_traits[trait] = not self.enabled_traits[trait]; self.sync_genetic_config()
     def toggle_prune(self): self.hide_dead_nodes = not self.hide_dead_nodes
     def toggle_spawn_away(self): self.spawn_away = not self.spawn_away
-
-    def prompt_save(self):
-        self.input_mode = "SAVE"
-        self.input_text = "level.json"
-        
-    def prompt_load(self):
-        self.input_mode = "LOAD"
-        self.input_text = "level.json"
+    def prompt_save(self): self.input_mode, self.input_text = "SAVE", "level.json"
+    def prompt_load(self): self.input_mode, self.input_text = "LOAD", "level.json"
 
     def perform_save(self):
         params = {"gen": self.generation, "step": self.step, "mut": self.mutation_rate, "ins": self.insertion_rate,
                   "del": self.deletion_rate, "uneq": self.unequal_rate, "pop": self.pop_size, "glen": self.genome_len,
                   "steps": self.steps_per_gen, "traits": self.enabled_traits, "spawn_away": self.spawn_away}
-        save_simulation(self.input_text, self.grid, self.agents, params)
-        self.input_mode = None
+        save_simulation(self.input_text, self.grid, self.agents, params); self.input_mode = None
 
     def perform_load(self):
         res = load_simulation(self.input_text)
@@ -161,15 +154,16 @@ class App:
             self.deletion_rate, self.unequal_rate = params.get("del", 0.01), params.get("uneq", 0.0)
             self.pop_size, self.genome_len, self.steps_per_gen = params.get("pop", 1000), params.get("glen", 12), params.get("steps", 300)
             self.spawn_away = params.get("spawn_away", False)
-            self.enabled_traits = params.get("traits", self.enabled_traits)
-            self.sync_genetic_config()
+            self.enabled_traits = params.get("traits", self.enabled_traits); self.sync_genetic_config()
             for i, p in enumerate([self.mutation_rate, self.insertion_rate, self.deletion_rate, self.unequal_rate]): self.sliders[i].value = p
             self.sliders[5].value, self.sliders[6].value, self.sliders[7].value = self.pop_size, self.genome_len, self.steps_per_gen
             self.sim_state, self.paused, self.selected_agent = "RUN", True, None
         self.input_mode = None
 
     def toggle_run(self):
-        if self.sim_state == "EDIT": self.sim_state, self.generation, self.step = "RUN", 1, 0; self.populate_world()
+        if self.sim_state == "EDIT": 
+            self.sim_state, self.generation, self.step = "RUN", 1, 0; self.populate_world()
+            self.analytics.history = {"generation": [], "survivors": [], "kills": [], "avg_len": []}
         else: self.sim_state, self.agents = "EDIT", []
     def toggle_pause(self): self.paused = not self.paused
     def clear_grid(self): self.grid, self.agents, self.selected_agent = Grid(GRID_SIZE), [], None
@@ -185,6 +179,7 @@ class App:
 
     def populate_world(self):
         self.agents = []
+        self.current_gen_kills = 0
         self.grid.pheromones.fill(0)
         for x in range(GRID_SIZE):
             for y in range(GRID_SIZE):
@@ -196,6 +191,13 @@ class App:
     def spawn_next_generation(self):
         survivors = [a for a in self.agents if a.alive and is_safe(a, self.grid)]
         num_survivors = len(survivors)
+        
+        # Analytics Update
+        alive_now = [a for a in self.agents if a.alive]
+        avg_len = sum(len(a.genome) for a in alive_now) / max(1, len(alive_now))
+        self.analytics.add_data(self.generation, num_survivors, self.current_gen_kills, avg_len)
+        self.current_gen_kills = 0
+        
         for x in range(GRID_SIZE):
             for y in range(GRID_SIZE):
                 if not self.grid.is_barrier(x, y): self.grid.set(x, y, 0)
@@ -231,6 +233,7 @@ class App:
                 self.btn_tog_vis.toggled, self.btn_tog_sml.toggled = self.enabled_traits["Vision"], self.enabled_traits["Smell"]
                 self.btn_tog_osc.toggled, self.btn_tog_mem.toggled, self.btn_tog_emt.toggled, self.btn_tog_kil.toggled = self.enabled_traits["Osc"], self.enabled_traits["Mem"], self.enabled_traits["Emit"], self.enabled_traits["Kill"]
                 self.btn_prune.toggled, self.btn_spawn_away.toggled = self.hide_dead_nodes, self.spawn_away
+                self.btn_stats.toggled = self.analytics.is_open
                 for btn in self.buttons: btn.handle_event(event)
                 for sld in self.sliders: sld.handle_event(event)
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1: mouse_down = True
@@ -269,7 +272,7 @@ class App:
                                     target_id = self.grid.data[tx][ty]
                                     if target_id > 0:
                                         for victim in self.agents:
-                                            if victim.id == target_id: victim.alive = False; self.grid.clear(tx, ty); break
+                                            if victim.id == target_id: victim.alive, self.current_gen_kills = False, self.current_gen_kills + 1; self.grid.clear(tx, ty); break
                         if dx != 0 or dy != 0:
                             nx, ny = agent.x + dx, agent.y + dy
                             if 0 <= nx < GRID_SIZE and 0 <= ny < GRID_SIZE and self.grid.is_empty(nx, ny):
@@ -280,8 +283,10 @@ class App:
             self.screen.fill(COLOR_BG); pygame.draw.rect(self.screen, COLOR_PANEL, (0, 0, PANEL_WIDTH, SIM_HEIGHT)); pygame.draw.line(self.screen, (100, 100, 100), (PANEL_WIDTH, 0), (PANEL_WIDTH, WINDOW_HEIGHT))
             for btn in self.buttons: btn.draw(self.screen, self.font)
             for sld in self.sliders: sld.draw(self.screen, self.font)
+            
+            stats_y = 480
             for i, line in enumerate([f"Gen: {self.generation}  Step: {self.step}", f"Pop: {len([a for a in self.agents if a.alive])}  FPS: {self.clock.get_fps():.1f}"]):
-                self.screen.blit(self.font.render(line, True, COLOR_TEXT), (20, 450 + i*20))
+                self.screen.blit(self.font.render(line, True, COLOR_TEXT), (20, stats_y + i*20))
             draw_brain(self.screen, self.selected_agent, pygame.Rect(10, SIM_HEIGHT - 300, PANEL_WIDTH - 20, 290), self.small_font, pygame.mouse.get_pos(), hide_dead=self.hide_dead_nodes)
             if self.selected_agent: self.screen.blit(self.font.render(f"ID: {self.selected_agent.id} {'(DEAD)' if not self.selected_agent.alive else ''}", True, COLOR_HIGHLIGHT), (20, SIM_HEIGHT - 320))
             
