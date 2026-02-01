@@ -20,7 +20,6 @@ class Agent:
         self.update_color()
 
     def update_color(self):
-        # Static color based on genome hash (Species ID)
         h = abs(hash(str([(g.source_num, g.sink_num) for g in self.genome])))
         self.color = [h % 255, (h // 255) % 255, (h // 65025) % 255]
 
@@ -40,6 +39,10 @@ class Agent:
         if index == S_LAST_MOVE_X: return (self.last_move[0] + 1) / 2
         if index == S_LAST_MOVE_Y: return (self.last_move[1] + 1) / 2
         if index == S_OSC: return (math.sin(time_step * 0.1) + 1) / 2
+        
+        # Pheromone Sensor
+        if index == S_SMELL:
+            return grid.get_pheromone(self.x, self.y)
         
         dx, dy = self.last_move
         if dx == 0 and dy == 0: 
@@ -88,6 +91,12 @@ class Agent:
         
         move_x = math.tanh(action_levels[A_MOVE_X])
         move_y = math.tanh(action_levels[A_MOVE_Y])
+        
+        # Pheromone Emission
+        emit_val = math.tanh(action_levels[A_EMIT])
+        if emit_val > 0: # Threshold
+            # Strength of scent depends on output (0.0 - 1.0)
+            grid.add_pheromone(self.x, self.y, emit_val * 0.5) # Max 0.5 per frame
         
         dx = 0
         dy = 0

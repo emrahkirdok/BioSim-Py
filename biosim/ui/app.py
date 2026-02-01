@@ -14,7 +14,7 @@ from biosim.ui.rendering import draw_brain
 # Config
 PANEL_WIDTH = 300
 SIM_WIDTH = 900
-SIM_HEIGHT = 850 # Increased height
+SIM_HEIGHT = 850
 BOTTOM_BAR_HEIGHT = 50 
 
 WINDOW_WIDTH = PANEL_WIDTH + SIM_WIDTH
@@ -180,6 +180,11 @@ class App:
     # --- Logic ---
     def populate_world(self):
         self.agents = []
+        # Keep barriers, clear agents
+        # (Grid.data contains agent IDs, Grid.pheromones contains scents)
+        # We should probably clear pheromones on reset? Yes.
+        self.grid.pheromones = [[0.0 for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
+        
         for x in range(GRID_SIZE):
             for y in range(GRID_SIZE):
                 if not self.grid.is_barrier(x, y):
@@ -195,6 +200,7 @@ class App:
         survivors = [a for a in self.agents if is_safe(a, self.grid)]
         num_survivors = len(survivors)
         
+        # Clear agents from grid
         for x in range(GRID_SIZE):
             for y in range(GRID_SIZE):
                 if not self.grid.is_barrier(x, y):
@@ -212,9 +218,11 @@ class App:
             for i in range(self.pop_size):
                 p1 = random.choice(survivors)
                 p2 = random.choice(survivors)
+                
                 child_genome = crossover_genomes(p1.genome, p2.genome, unequal_rate=self.unequal_rate)
                 mutate_genome(child_genome, mutation_rate=self.mutation_rate, 
                               insertion_rate=self.insertion_rate, deletion_rate=self.deletion_rate)
+                
                 loc = self.grid.find_empty_location()
                 if loc:
                     x, y = loc
@@ -259,38 +267,39 @@ class App:
                 elif event.type == pygame.MOUSEBUTTONUP: mouse_down = False
 
             if not self.input_mode:
-                # Interaction
                 mx, my = pygame.mouse.get_pos()
-                
+                gx, gy = -1, -1
                 if mx > PANEL_WIDTH and my < SIM_HEIGHT:
                     gx = (mx - SIM_OFFSET_X) // CELL_SIZE
                     gy = (my - SIM_OFFSET_Y) // CELL_SIZE
-                    
-                    if mouse_down:
-                        if gx != -1:
-                            if self.sim_state == "EDIT" and self.tool_mode != 0:
-                                r = self.brush_size - 1
-                                for bx in range(gx - r, gx + r + 1):
-                                    for by in range(gy - r, gy + r + 1):
-                                        if 0 <= bx < GRID_SIZE and 0 <= by < GRID_SIZE:
-                                            if self.tool_mode == 1: self.grid.set(bx, by, BARRIER)
-                                            elif self.tool_mode == 2: self.grid.set_safe(bx, by, True)
-                                            elif self.tool_mode == 3: 
-                                                self.grid.set(bx, by, 0)
-                                                self.grid.set_safe(bx, by, False)
-                            
-                            if self.tool_mode == 0 and 0 <= gx < GRID_SIZE and 0 <= gy < GRID_SIZE:
-                                agent_id = self.grid.data[gx][gy]
-                                if agent_id > 0:
-                                    for a in self.agents:
-                                        if a.id == agent_id:
-                                            self.selected_agent = a
-                                            break
-                                else:
-                                    self.selected_agent = None
 
-                # Simulation
+                if mouse_down and gx != -1:
+                    if self.sim_state == "EDIT" and self.tool_mode != 0:
+                        r = self.brush_size - 1
+                        for bx in range(gx - r, gx + r + 1):
+                            for by in range(gy - r, gy + r + 1):
+                                if 0 <= bx < GRID_SIZE and 0 <= by < GRID_SIZE:
+                                    if self.tool_mode == 1: self.grid.set(bx, by, BARRIER)
+                                    elif self.tool_mode == 2: self.grid.set_safe(bx, by, True)
+                                    elif self.tool_mode == 3: 
+                                        self.grid.set(bx, by, 0)
+                                        self.grid.set_safe(bx, by, False)
+                    
+                    if self.tool_mode == 0 and 0 <= gx < GRID_SIZE and 0 <= gy < GRID_SIZE:
+                        agent_id = self.grid.data[gx][gy]
+                        if agent_id > 0:
+                            for a in self.agents:
+                                if a.id == agent_id:
+                                    self.selected_agent = a
+                                    break
+                        else:
+                            self.selected_agent = None
+
+                # Simulation Loop
                 if self.sim_state == "RUN" and not self.paused:
+                    # Update Physics (Pheromones)
+                    self.grid.update_pheromones()
+                    
                     random.shuffle(self.agents)
                     for agent in self.agents:
                         dx, dy, _ = agent.think(self.grid, self.step)
@@ -329,7 +338,6 @@ class App:
             for i, line in enumerate(stats):
                 self.screen.blit(self.font.render(line, True, COLOR_TEXT), (20, 440 + i*20))
 
-            # Brain Viz (Pushed to bottom of panel area)
             brain_rect = pygame.Rect(10, SIM_HEIGHT - 300, PANEL_WIDTH - 20, 290)
             draw_brain(self.screen, self.selected_agent, brain_rect, self.small_font, pygame.mouse.get_pos())
             if self.selected_agent:
@@ -340,8 +348,24 @@ class App:
             sim_rect = pygame.Rect(SIM_OFFSET_X, SIM_OFFSET_Y, GRID_SIZE*CELL_SIZE, GRID_SIZE*CELL_SIZE)
             pygame.draw.rect(self.screen, (0, 0, 0), sim_rect)
             
+            # Draw Pheromones (Simple overlay)
+            # Iterate grid? Slow. Let's try drawing only occupied cells? 
+            # Or just iterate. Pygame blit is fast.
+            # Optimization: Create a Surface once, update pixels.
+            # For now, simplistic iteration.
             for x in range(GRID_SIZE):
                 for y in range(GRID_SIZE):
+                    # Pheromones
+                    ph = self.grid.get_pheromone(x, y)
+                    if ph > 0.1:
+                        rect = (SIM_OFFSET_X + x * CELL_SIZE, SIM_OFFSET_Y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
+                        # Blue tint
+                        # Alpha blending manually is slow. 
+                        # Just draw a small rect or colored rect.
+                        intensity = int(ph * 255)
+                        pygame.draw.rect(self.screen, (0, 0, intensity), rect)
+
+                    # Safe Zones & Barriers
                     if self.grid.is_safe_tile(x, y):
                         rect = (SIM_OFFSET_X + x * CELL_SIZE, SIM_OFFSET_Y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
                         pygame.draw.rect(self.screen, COLOR_SAFE_ZONE, rect)
@@ -357,6 +381,7 @@ class App:
 
             pygame.draw.rect(self.screen, (100, 100, 100), sim_rect, 1)
             
+            # Brush Helper
             if not self.input_mode and self.sim_state == "EDIT" and self.tool_mode != 0:
                 if gx >= 0 and gx < GRID_SIZE and gy >= 0 and gy < GRID_SIZE:
                     r = self.brush_size - 1
@@ -379,9 +404,6 @@ class App:
                 self.screen.blit(lbl, (10, SIM_HEIGHT + 15))
                 dna_surf = self.font.render(display_dna, True, (100, 200, 255))
                 self.screen.blit(dna_surf, (80, SIM_HEIGHT + 15))
-            else:
-                hint = self.font.render("Select an agent to inspect its genome.", True, (100, 100, 100))
-                self.screen.blit(hint, (10, SIM_HEIGHT + 15))
 
             if self.input_mode:
                 dialog_rect = pygame.Rect(WINDOW_WIDTH//2 - 150, WINDOW_HEIGHT//2 - 50, 300, 100)
