@@ -64,7 +64,11 @@ def make_random_gene():
     g.weight = (random.random() * 8.0) - 4.0
     return g
 
-def mutate_genome(genome, mutation_rate=0.01):
+def mutate_genome(genome, mutation_rate=0.01, insertion_rate=0.05, deletion_rate=0.05):
+    """
+    Applies Point Mutations, Insertions, and Deletions based on rates.
+    """
+    # 1. Point Mutations
     for gene in genome:
         if random.random() < mutation_rate:
             trait = random.randint(0, 4)
@@ -73,11 +77,13 @@ def mutate_genome(genome, mutation_rate=0.01):
             elif trait == 2: gene.sink_type ^= 1
             elif trait == 3: gene.sink_num ^= random.randint(1, 127)
             elif trait == 4: gene.weight += (random.random() - 0.5) * 2.0
-    if random.random() < 0.05:
-        if random.random() < 0.5 and len(genome) > 1:
-            del genome[random.randint(0, len(genome)-1)]
-        else:
-            genome.append(make_random_gene())
+            
+    # 2. Indels
+    if random.random() < deletion_rate and len(genome) > 1:
+        del genome[random.randint(0, len(genome)-1)]
+        
+    if random.random() < insertion_rate:
+        genome.append(make_random_gene())
 
 def recombine_dna(dna1, dna2):
     """Standard Homologous Recombination (Equal length/pivot)."""
@@ -95,27 +101,23 @@ def recombine_dna_unequal(dna1, dna2):
     """
     if not dna1: return dna2
     if not dna2: return dna1
-    
     len1, len2 = len(dna1), len(dna2)
-    
-    # Pivot 1 (Parent A)
     pivot1 = random.randint(0, len1)
-    
-    # Pivot 2 (Parent B) with Jitter
     jitter = random.randint(-16, 16)
     pivot2 = max(0, min(len2, pivot1 + jitter))
-    
     return dna1[:pivot1] + dna2[pivot2:]
 
-def crossover_genomes(g1, g2):
+def crossover_genomes(g1, g2, unequal_rate=0.0):
     """
     Wrapper that converts to DNA, recombines, and converts back.
-    Currently uses STANDARD recombination. Change to recombine_dna_unequal to enable duplication.
+    unequal_rate: Probability of using unequal recombination logic.
     """
     dna1 = genome_to_hex(g1)
     dna2 = genome_to_hex(g2)
     
-    # Use standard for now
-    child_dna = recombine_dna(dna1, dna2)
+    if random.random() < unequal_rate:
+        child_dna = recombine_dna_unequal(dna1, dna2)
+    else:
+        child_dna = recombine_dna(dna1, dna2)
     
     return genome_from_hex(child_dna)

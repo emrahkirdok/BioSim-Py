@@ -13,7 +13,7 @@ from biosim.ui.rendering import draw_brain
 PANEL_WIDTH = 300
 SIM_WIDTH = 900
 SIM_HEIGHT = 800
-BOTTOM_BAR_HEIGHT = 50 # New bar for Hex code
+BOTTOM_BAR_HEIGHT = 50 
 
 WINDOW_WIDTH = PANEL_WIDTH + SIM_WIDTH
 WINDOW_HEIGHT = SIM_HEIGHT + BOTTOM_BAR_HEIGHT
@@ -46,6 +46,10 @@ class App:
         
         # Params
         self.mutation_rate = 0.01
+        self.insertion_rate = 0.01
+        self.deletion_rate = 0.01
+        self.unequal_rate = 0.0 # 0% chance by default (safe)
+        
         self.brush_size = 1
         self.pop_size = 1000
         self.genome_len = 12
@@ -64,17 +68,25 @@ class App:
         self.btn_pause = Button(120, 20, 60, 30, "Pause", self.toggle_pause)
         self.btn_clear = Button(190, 20, 60, 30, "Clear", self.clear_grid)
         
-        self.btn_tool_sel = Button(20, 70, 60, 30, "Sel", lambda: self.set_tool(0))
-        self.btn_tool_bar = Button(90, 70, 60, 30, "Wall", lambda: self.set_tool(1))
-        self.btn_tool_saf = Button(160, 70, 60, 30, "Zone", lambda: self.set_tool(2))
-        self.btn_tool_era = Button(230, 70, 60, 30, "Erase", lambda: self.set_tool(3))
+        self.btn_tool_sel = Button(20, 60, 60, 30, "Sel", lambda: self.set_tool(0))
+        self.btn_tool_bar = Button(90, 60, 60, 30, "Wall", lambda: self.set_tool(1))
+        self.btn_tool_saf = Button(160, 60, 60, 30, "Zone", lambda: self.set_tool(2))
+        self.btn_tool_era = Button(230, 60, 60, 30, "Erase", lambda: self.set_tool(3))
+        
+        # Condensed Slider Layout
+        y = 110
+        gap = 35
         
         self.sliders = [
-            Slider(20, 130, 210, 12, 0.0, 0.1, self.mutation_rate, "Mutation Rate", self.set_mut_rate),
-            Slider(20, 170, 210, 12, 1, 5, self.brush_size, "Brush Size", self.set_brush_size, int_mode=True),
-            Slider(20, 210, 210, 12, 100, 5000, self.pop_size, "Pop Size", self.set_pop_size, int_mode=True),
-            Slider(20, 250, 210, 12, 4, 32, self.genome_len, "Genome Len", self.set_genome_len, int_mode=True),
-            Slider(20, 290, 210, 12, 100, 2000, self.steps_per_gen, "Steps/Gen", self.set_steps, int_mode=True)
+            Slider(20, y, 210, 12, 0.0, 0.1, self.mutation_rate, "Mut Rate", self.set_mut_rate),
+            Slider(20, y+gap, 210, 12, 0.0, 0.1, self.insertion_rate, "Ins Rate", self.set_ins_rate),
+            Slider(20, y+gap*2, 210, 12, 0.0, 0.1, self.deletion_rate, "Del Rate", self.set_del_rate),
+            Slider(20, y+gap*3, 210, 12, 0.0, 1.0, self.unequal_rate, "Unequal %", self.set_unequal_rate),
+            
+            Slider(20, y+gap*4, 210, 12, 1, 5, self.brush_size, "Brush Size", self.set_brush_size, int_mode=True),
+            Slider(20, y+gap*5, 210, 12, 100, 5000, self.pop_size, "Pop Size", self.set_pop_size, int_mode=True),
+            Slider(20, y+gap*6, 210, 12, 4, 32, self.genome_len, "Genome Len", self.set_genome_len, int_mode=True),
+            Slider(20, y+gap*7, 210, 12, 100, 2000, self.steps_per_gen, "Steps/Gen", self.set_steps, int_mode=True)
         ]
         
         self.buttons = [self.btn_start, self.btn_pause, self.btn_clear, 
@@ -99,6 +111,10 @@ class App:
         
     def set_tool(self, mode): self.tool_mode = mode
     def set_mut_rate(self, val): self.mutation_rate = val
+    def set_ins_rate(self, val): self.insertion_rate = val
+    def set_del_rate(self, val): self.deletion_rate = val
+    def set_unequal_rate(self, val): self.unequal_rate = val
+    
     def set_brush_size(self, val): self.brush_size = int(val)
     def set_pop_size(self, val): self.pop_size = int(val)
     def set_genome_len(self, val): self.genome_len = int(val)
@@ -140,8 +156,11 @@ class App:
             for i in range(self.pop_size):
                 p1 = random.choice(survivors)
                 p2 = random.choice(survivors)
-                child_genome = crossover_genomes(p1.genome, p2.genome)
-                mutate_genome(child_genome, mutation_rate=self.mutation_rate)
+                
+                # Use dynamic rates
+                child_genome = crossover_genomes(p1.genome, p2.genome, unequal_rate=self.unequal_rate)
+                mutate_genome(child_genome, mutation_rate=self.mutation_rate, 
+                              insertion_rate=self.insertion_rate, deletion_rate=self.deletion_rate)
                 
                 loc = self.grid.find_empty_location()
                 if loc:
@@ -177,12 +196,10 @@ class App:
             if mouse_down:
                 mx, my = pygame.mouse.get_pos()
                 
-                # Check if in Sim Area (excluding bottom bar)
                 if mx > PANEL_WIDTH and my < SIM_HEIGHT:
                     gx = (mx - SIM_OFFSET_X) // CELL_SIZE
                     gy = (my - SIM_OFFSET_Y) // CELL_SIZE
                     
-                    # Brush Logic
                     if self.sim_state == "EDIT" and self.tool_mode != 0:
                         r = self.brush_size - 1
                         for bx in range(gx - r, gx + r + 1):
@@ -228,22 +245,21 @@ class App:
             self.screen.fill(COLOR_BG)
             
             # Panel
-            pygame.draw.rect(self.screen, COLOR_PANEL, (0, 0, PANEL_WIDTH, SIM_HEIGHT)) # Stop before bottom bar
+            pygame.draw.rect(self.screen, COLOR_PANEL, (0, 0, PANEL_WIDTH, SIM_HEIGHT))
             pygame.draw.line(self.screen, (100, 100, 100), (PANEL_WIDTH, 0), (PANEL_WIDTH, WINDOW_HEIGHT))
             
             for btn in self.buttons: btn.draw(self.screen, self.font)
             for sld in self.sliders: sld.draw(self.screen, self.font)
             
             stats = [
-                f"State: {self.sim_state} {'(PAUSED)' if self.paused else ''}",
+                f"State: {self.sim_state}",
                 f"Gen: {self.generation}",
                 f"Step: {self.step}/{self.steps_per_gen}",
                 f"Pop: {len(self.agents)}",
-                f"FPS: {self.clock.get_fps():.1f}",
-                "L-Click to Draw/Sel"
+                f"FPS: {self.clock.get_fps():.1f}"
             ]
             for i, line in enumerate(stats):
-                self.screen.blit(self.font.render(line, True, COLOR_TEXT), (20, 330 + i*20))
+                self.screen.blit(self.font.render(line, True, COLOR_TEXT), (20, 400 + i*20))
 
             # Brain Viz
             brain_rect = pygame.Rect(10, SIM_HEIGHT - 290, PANEL_WIDTH - 20, 280)
@@ -273,17 +289,15 @@ class App:
 
             pygame.draw.rect(self.screen, (100, 100, 100), sim_rect, 1)
             
-            # --- Bottom Bar (Genome Inspector) ---
+            # Bottom Bar
             bottom_bar_rect = pygame.Rect(0, SIM_HEIGHT, WINDOW_WIDTH, BOTTOM_BAR_HEIGHT)
             pygame.draw.rect(self.screen, (30, 30, 35), bottom_bar_rect)
             pygame.draw.line(self.screen, (100, 100, 100), (0, SIM_HEIGHT), (WINDOW_WIDTH, SIM_HEIGHT))
             
             if self.selected_agent:
                 dna = genome_to_hex(self.selected_agent.genome)
-                # Render label
                 lbl = self.font.render("Genome:", True, (150, 150, 150))
                 self.screen.blit(lbl, (10, SIM_HEIGHT + 15))
-                # Render DNA
                 dna_surf = self.font.render(dna, True, (100, 200, 255))
                 self.screen.blit(dna_surf, (80, SIM_HEIGHT + 15))
             else:
