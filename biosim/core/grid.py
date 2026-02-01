@@ -57,16 +57,10 @@ class Grid:
         
     def update_pheromones(self):
         """Vectorized Decay and Diffusion using NumPy."""
-        # 1. Decay
         decay_factor = 0.98
         self.pheromones *= decay_factor
         
-        # 2. Diffusion (3x3 Box Blur)
-        # We use slices to shift the array in 8 directions and average
-        # This is extremely fast compared to loops.
-        diff = 0.1 # Diffusion rate
-        
-        # Calculate neighbor sum using slicing (ignoring edges for simplicity)
+        diff = 0.1 
         neighbor_sum = np.zeros_like(self.pheromones)
         neighbor_sum[1:-1, 1:-1] = (
             self.pheromones[:-2, 1:-1] +  # Top
@@ -79,18 +73,40 @@ class Grid:
             self.pheromones[2:, 2:]       # Bottom-Right
         ) / 8.0
         
-        # Apply diffusion formula
         self.pheromones = (1.0 - diff) * self.pheromones + diff * neighbor_sum
-        
-        # Clip to ensure stability
         self.pheromones = np.clip(self.pheromones, 0, 1.0)
 
-    def find_empty_location(self):
-        for _ in range(100): 
+    def find_empty_location(self, avoid_safe=False, margin=0):
+        """
+        Finds a random unoccupied location.
+        avoid_safe: If True, tries to find a tile that is not safe.
+        margin: Distance from any safe tile if avoid_safe is True.
+        """
+        for _ in range(1000): # More attempts for restricted spawning
             x = random.randint(0, self.size - 1)
             y = random.randint(0, self.size - 1)
+            
             if self.data[x][y] == 0:
-                return x, y
+                if not avoid_safe:
+                    return x, y
+                
+                # Logic to avoid safe zones with margin
+                is_near_safe = False
+                if margin == 0:
+                    is_near_safe = self.is_safe_tile(x, y)
+                else:
+                    # Check neighborhood
+                    for dx in range(-margin, margin + 1):
+                        for dy in range(-margin, margin + 1):
+                            if self.is_safe_tile(x + dx, y + dy):
+                                is_near_safe = True
+                                break
+                        if is_near_safe: break
+                
+                if not is_near_safe:
+                    return x, y
+                    
+        # Fallback if too crowded/hard
         return None
 
 def is_safe(agent, grid):
