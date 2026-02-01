@@ -1,57 +1,69 @@
 # Biosim4 Python Port
 
 ## Overview
-This document tracks the effort to port the C++ **biosim4** biological simulation engine to Python. The goal is to create a more accessible, hackable, and cross-platform version of the simulation while maintaining the core biological algorithms.
+This is a feature-rich port of the **biosim4** biological simulation engine to Python. It features a real-time GUI, an integrated Level Editor, and a sophisticated neural network visualization system.
 
-## Current Status
-We have successfully implemented three key prototypes demonstrating the core logic and visualization.
+The simulation models a population of agents that evolve over time to survive in a user-defined environment. Agents possess genomes that encode neural network brains, allowing them to sense their surroundings and make decisions.
 
-### 1. Genome & Wiring Logic (`python_genome_logic.py`)
-*   **Purpose:** Replicates the C++ `Indiv::createWiringFromGenome` logic.
-*   **Functionality:** 
-    *   Generates random genomes (lists of genes).
-    *   Maps large gene IDs to specific sensor/neuron/action ranges using modulo arithmetic.
-    *   **Culling Algorithm:** Iteratively removes "useless" neurons (dead ends or self-loops) to optimize the neural net.
-    *   **Renumbering:** Remaps surviving neurons to a clean sequential index.
+## Key Features
 
-### 2. CLI Proof of Concept (`biosim_python_poc.py`)
-*   **Purpose:** A text-based simulation loop to verify the agent lifecycle.
-*   **Functionality:**
-    *   Implements the `Agent` class with a functional neural brain.
-    *   **Feed-Forward Network:** Propagates signals from Sensors -> Neurons -> Actions.
-    *   **Sensors:** Location (X, Y), Last Move Direction, Random input.
-    *   **Actions:** Move X, Move Y.
-    *   Runs a deterministic simulation loop and prints agent states to the console.
+### 1. Interactive Simulation & Level Editor
+*   **Split-Screen Interface:** A control panel on the left and the simulation world on the right.
+*   **Painting Tools:** Draw Barriers (Walls) and Safe Zones directly onto the grid.
+*   **Physics Engine:** Collision detection prevents agents from moving through walls or overlapping with each other.
+*   **Boundary Constraints:** Agents are confined to the 128x128 grid (no wrapping).
 
-### 3. GUI Visualization (`biosim_gui.py`)
-*   **Purpose:** A real-time visual representation of the simulation.
-*   **Tech Stack:** `pygame`.
-*   **Features:**
-    *   **Grid World:** 128x128 grid rendered in an 800x800 window.
-    *   **Visuals:** Agents are colored based on a hash of their genome (indicating "species") and dynamic internal state.
-    *   **Interactive Controls:** Spacebar to pause, 'R' to reset.
-    *   **Performance:** Capable of running ~500 agents at 60 FPS in pure Python.
+### 2. Biological Engine (`biosim_lib.py`)
+*   **Genetics:** Agents have genomes (lists of genes) that can mutate and crossover (sexual reproduction).
+*   **Neural Network:** 
+    *   **Sensors:** Vision (Raycasting), Position, Randomness, Oscillator.
+    *   **Actions:** Movement (Cardinal directions), Color change.
+    *   **Hidden Layer:** Up to 10 internal neurons for complex processing.
+*   **Evolution:** Agents that end the generation inside a "Safe Zone" survive and reproduce.
 
-## Technical Architecture
+### 3. Inspection Tools
+*   **Brain Visualizer:** Click on any agent to inspect its Neural Network in real-time.
+    *   **Green Nodes:** Sensors (Inputs).
+    *   **Red Nodes:** Actions (Outputs).
+    *   **Connections:** Blue lines (Positive weights) and Red lines (Negative weights).
+*   **Real-time Stats:** Track Generation, Step, Population Count, and FPS.
 
-### The Genome
-A genome is a list of **Genes**. Each gene represents a single connection in the brain.
-*   **Source:** Sensor ID or Neuron ID.
-*   **Sink:** Action ID or Neuron ID.
-*   **Weight:** Float value (strength of connection).
+## User Manual
 
-### The Brain (Neural Net)
-Unlike standard deep learning models (fixed layers), this brain is a **sparse, arbitrary graph**.
-1.  **Sensing:** The agent reads its environment (Coordinates, Pheromones, Oscillator).
-2.  **Thinking:** Inputs are multiplied by weights and summed at the target nodes. Activation function is `tanh`.
-3.  **Acting:** Output nodes determine movement probability and other traits (color, responsiveness).
+### Controls (Left Panel)
+*   **Start/Stop:** Toggles between "Edit Mode" (Empty world) and "Run Mode" (Populated world).
+*   **Pause:** Freezes the simulation loop without resetting the population.
+*   **Clear:** Wipes the grid (removes barriers and zones).
+*   **Tools:**
+    *   **Sel:** Select an agent to inspect its brain.
+    *   **Wall:** Draw grey barriers (agents cannot pass).
+    *   **Zone:** Draw green safe zones (agents must be here to survive).
+    *   **Erase:** Remove walls or zones.
 
-### Hardcoded Mappings
-Just like the C++ version, specific IDs map to specific functions:
-*   **Sensors:** 0=`LOC_X`, 1=`LOC_Y`, 2=`RANDOM`, etc.
-*   **Actions:** 0=`MOVE_X`, 1=`MOVE_Y`, etc.
+### Parameters (Sliders)
+*   **Mutation Rate:** Probability of gene mutation during reproduction (0.0 - 0.1).
+*   **Brush Size:** Radius of the painting tool (1 - 5).
+*   **Pop Size:** Target population for the next generation (100 - 5000).
+*   **Genome Len:** Complexity of initial brains (4 - 32 genes).
+*   **Steps/Gen:** Duration of a generation (100 - 2000 frames).
 
-## Usage Instructions
+## Sensors & Actions
+
+### Sensors (Inputs)
+*   `LocX`, `LocY`: Normalized X/Y coordinates.
+*   `Rnd`: Random noise.
+*   `LmvX`, `LmvY`: Direction of last movement.
+*   `Osc`: Sinewave oscillator (internal clock).
+*   `DstBar`: Distance to nearest barrier forward (Raycast).
+*   `DstSafe`: Distance to safe zone forward (Raycast).
+*   `DensAg`: Density of agents forward.
+
+### Actions (Outputs)
+*   `MvX`, `MvY`: Movement velocity vector.
+*   `MvFwd`: Move in previous direction.
+*   `ColR`, `ColG`, `ColB`: Change body color.
+
+## Installation & Usage
 
 ### Prerequisites
 *   Python 3.8+
@@ -61,34 +73,12 @@ Just like the C++ version, specific IDs map to specific functions:
 pip install pygame
 ```
 
-### Running the Simulation
-To run the interactive GUI:
+### Running the Application
 ```bash
+cd biosim4_py
 python3 biosim_gui.py
 ```
 
-To run the logic verification script:
-```bash
-python3 python_genome_logic.py
-```
-
-## Development Roadmap
-
-### Phase 1: Optimization (The "Big Scale" Update)
-*   **Current Limit:** ~500-1000 agents.
-*   **Goal:** 5000+ agents.
-*   **Strategy:** 
-    *   Migrate data structures to **NumPy** arrays (Structure of Arrays pattern).
-    *   Use **Numba** to JIT compile the hot paths (collision detection, neural feed-forward).
-
-### Phase 2: Evolution
-*   Implement `Survival Criteria` (who lives, who dies).
-*   Implement `Reproduction`:
-    *   **Sexual:** Crossover of two parent genomes.
-    *   **Asexual:** Cloning with mutations (bit flips, insertions, deletions).
-*   Add `Epoch` management to the main loop.
-
-### Phase 3: Advanced Environment
-*   Add **Pheromones** (Grid-based chemical trails).
-*   Add **Barriers** (Walls).
-*   Add **Killing** (Agents attacking each other).
+## Architecture
+*   **`biosim_gui.py`**: Handles rendering, input, and the main application loop.
+*   **`biosim_lib.py`**: Contains the core simulation logic (`Agent`, `Genome`, `Grid`, `Physics`, `Evolution`).
