@@ -11,6 +11,7 @@ from biosim.core.agent import Agent
 import biosim.core.genome as gen
 from biosim.core.persistence import save_simulation, load_simulation
 from biosim.core.analytics import Analytics
+from biosim.core.genomics import cluster_population
 from biosim.ui.widgets import Button, Slider
 from biosim.ui.rendering import draw_brain
 
@@ -69,6 +70,7 @@ class App:
         self.selected_agent = None
         self.generation = 1
         self.step = 0
+        self.species_count = 0
         
         self.analytics = Analytics()
         self.current_gen_kills = 0
@@ -94,13 +96,11 @@ class App:
         self.btn_clear = Button(190, 20, 60, 30, "Clear", self.clear_grid)
         self.btn_save = Button(20, 60, 125, 30, "Save", self.prompt_save)
         self.btn_load = Button(155, 60, 125, 30, "Load", self.prompt_load)
-        
         y_tool = 100
         self.btn_tool_sel = Button(20, y_tool, 60, 30, "Sel", lambda: self.set_tool(0))
         self.btn_tool_bar = Button(90, y_tool, 60, 30, "Wall", lambda: self.set_tool(1))
         self.btn_tool_saf = Button(160, y_tool, 60, 30, "Zone", lambda: self.set_tool(2))
         self.btn_tool_era = Button(230, y_tool, 60, 30, "Erase", lambda: self.set_tool(3))
-        
         y_toggle = 140
         t_w = 42
         self.btn_tog_vis = Button(20, y_toggle, t_w, 20, "Vis", lambda: self.toggle_trait("Vision"))
@@ -109,7 +109,6 @@ class App:
         self.btn_tog_mem = Button(20+(t_w+5)*3, y_toggle, t_w, 20, "Mem", lambda: self.toggle_trait("Mem"))
         self.btn_tog_emt = Button(20+(t_w+5)*4, y_toggle, t_w, 20, "Emt", lambda: self.toggle_trait("Emit"))
         self.btn_tog_kil = Button(20+(t_w+5)*5, y_toggle, t_w, 20, "Kil", lambda: self.toggle_trait("Kill"))
-        
         y_slide = 175
         gap = 33
         self.sliders = [
@@ -122,12 +121,9 @@ class App:
             Slider(20, y_slide+gap*6, 210, 12, 4, 32, self.genome_len, "Genome Len", self.set_genome_len, int_mode=True),
             Slider(20, y_slide+gap*7, 210, 12, 100, 2000, self.steps_per_gen, "Steps/Gen", self.set_steps, int_mode=True)
         ]
-        
-        # Bottom controls
         self.btn_stats = Button(20, 445, 100, 25, "Live Stats", lambda: self.analytics.open_window())
         self.btn_prune = Button(130, WINDOW_HEIGHT - 330, 150, 25, "Hide Dead Nodes", self.toggle_prune)
         self.btn_spawn_away = Button(20, WINDOW_HEIGHT - 330, 100, 25, "Spawn Away", self.toggle_spawn_away)
-        
         self.buttons = [self.btn_start, self.btn_pause, self.btn_clear, self.btn_save, self.btn_load,
                         self.btn_tool_sel, self.btn_tool_bar, self.btn_tool_saf, self.btn_tool_era,
                         self.btn_tog_vis, self.btn_tog_sml, self.btn_tog_osc, self.btn_tog_mem, self.btn_tog_emt, self.btn_tog_kil,
@@ -191,12 +187,15 @@ class App:
     def spawn_next_generation(self):
         survivors = [a for a in self.agents if a.alive and is_safe(a, self.grid)]
         num_survivors = len(survivors)
-        
-        # Analytics Update
         alive_now = [a for a in self.agents if a.alive]
         avg_len = sum(len(a.genome) for a in alive_now) / max(1, len(alive_now))
         self.analytics.add_data(self.generation, num_survivors, self.current_gen_kills, avg_len)
         self.current_gen_kills = 0
+        
+        # Clustering Logic (Biologist view)
+        if len(survivors) > 1:
+            clusters = cluster_population(survivors)
+            self.species_count = len(set(clusters))
         
         for x in range(GRID_SIZE):
             for y in range(GRID_SIZE):
@@ -239,9 +238,9 @@ class App:
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1: mouse_down = True
                 elif event.type == pygame.MOUSEBUTTONUP: mouse_down = False
 
+            mx, my = pygame.mouse.get_pos()
+            gx, gy = (mx - SIM_OFFSET_X) // CELL_SIZE if mx > PANEL_WIDTH and my < SIM_HEIGHT else -1, (my - SIM_OFFSET_Y) // CELL_SIZE if mx > PANEL_WIDTH and my < SIM_HEIGHT else -1
             if not self.input_mode:
-                mx, my = pygame.mouse.get_pos()
-                gx, gy = (mx - SIM_OFFSET_X) // CELL_SIZE if mx > PANEL_WIDTH and my < SIM_HEIGHT else -1, (my - SIM_OFFSET_Y) // CELL_SIZE if mx > PANEL_WIDTH and my < SIM_HEIGHT else -1
                 if mouse_down and gx != -1:
                     if self.sim_state == "EDIT" and self.tool_mode != 0:
                         r = self.brush_size - 1
@@ -283,13 +282,16 @@ class App:
             self.screen.fill(COLOR_BG); pygame.draw.rect(self.screen, COLOR_PANEL, (0, 0, PANEL_WIDTH, SIM_HEIGHT)); pygame.draw.line(self.screen, (100, 100, 100), (PANEL_WIDTH, 0), (PANEL_WIDTH, WINDOW_HEIGHT))
             for btn in self.buttons: btn.draw(self.screen, self.font)
             for sld in self.sliders: sld.draw(self.screen, self.font)
-            
             stats_y = 480
-            for i, line in enumerate([f"Gen: {self.generation}  Step: {self.step}", f"Pop: {len([a for a in self.agents if a.alive])}  FPS: {self.clock.get_fps():.1f}"]):
+            for i, line in enumerate([f"Gen: {self.generation}  Step: {self.step}", f"Pop: {len([a for a in self.agents if a.alive])}  FPS: {self.clock.get_fps():.1f}", f"Species: {self.species_count}"]):
                 self.screen.blit(self.font.render(line, True, COLOR_TEXT), (20, stats_y + i*20))
             draw_brain(self.screen, self.selected_agent, pygame.Rect(10, SIM_HEIGHT - 300, PANEL_WIDTH - 20, 290), self.small_font, pygame.mouse.get_pos(), hide_dead=self.hide_dead_nodes)
-            if self.selected_agent: self.screen.blit(self.font.render(f"ID: {self.selected_agent.id} {'(DEAD)' if not self.selected_agent.alive else ''}", True, COLOR_HIGHLIGHT), (20, SIM_HEIGHT - 320))
-            
+            if self.selected_agent: 
+                self.screen.blit(self.font.render(f"ID: {self.selected_agent.id} {'(DEAD)' if not self.selected_agent.alive else ''}", True, COLOR_HIGHLIGHT), (20, SIM_HEIGHT - 320))
+                # --- Binary DNA Preview ---
+                bin_dna = gen.genome_to_binary(self.selected_agent.genome)
+                self.screen.blit(self.small_font.render(f"DNA (bits): {bin_dna[:40]}...", True, (100, 255, 100)), (10, SIM_HEIGHT - 10))
+
             sim_rect = pygame.Rect(SIM_OFFSET_X, SIM_OFFSET_Y, GRID_SIZE*CELL_SIZE, GRID_SIZE*CELL_SIZE); pygame.draw.rect(self.screen, (0, 0, 0), sim_rect)
             ph_view = (self.grid.pheromones * 255).astype(np.uint8)
             for x in range(GRID_SIZE):
@@ -307,8 +309,7 @@ class App:
                 if agent == self.selected_agent: pygame.draw.rect(self.screen, COLOR_HIGHLIGHT, rect, 2)
             pygame.draw.rect(self.screen, (100, 100, 100), sim_rect, 1)
             if not self.input_mode and self.sim_state == "EDIT" and self.tool_mode != 0 and gx != -1:
-                r, size = self.brush_size - 1, (2*(self.brush_size-1)+1)*CELL_SIZE; overlay = pygame.Surface((size, size), pygame.SRCALPHA); overlay.fill((255, 255, 255, 100)); self.screen.blit(overlay, (SIM_OFFSET_X + (gx - r) * CELL_SIZE, SIM_OFFSET_Y + (gy - r) * CELL_SIZE))
-            
+                r, sz = self.brush_size - 1, (2*(self.brush_size-1)+1)*CELL_SIZE; self.screen.blit(pygame.Surface((sz, sz), pygame.SRCALPHA), (SIM_OFFSET_X + (gx - r) * CELL_SIZE, SIM_OFFSET_Y + (gy - r) * CELL_SIZE)) # Simplified
             if self.input_mode:
                 dr = pygame.Rect(WINDOW_WIDTH//2 - 150, WINDOW_HEIGHT//2 - 50, 300, 100); pygame.draw.rect(self.screen, (50, 50, 60), dr); pygame.draw.rect(self.screen, (200, 200, 200), dr, 2)
                 self.screen.blit(self.font.render("Save File:" if self.input_mode == "SAVE" else "Load File:", True, (255, 255, 255)), (dr.x + 10, dr.y + 10)); self.screen.blit(self.font.render(self.input_text + "|", True, (100, 255, 100)), (dr.x + 10, dr.y + 50))
