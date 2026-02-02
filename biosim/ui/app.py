@@ -288,9 +288,6 @@ class App:
             draw_brain(self.screen, self.selected_agent, pygame.Rect(10, SIM_HEIGHT - 300, PANEL_WIDTH - 20, 290), self.small_font, pygame.mouse.get_pos(), hide_dead=self.hide_dead_nodes)
             if self.selected_agent: 
                 self.screen.blit(self.font.render(f"ID: {self.selected_agent.id} {'(DEAD)' if not self.selected_agent.alive else ''}", True, COLOR_HIGHLIGHT), (20, SIM_HEIGHT - 320))
-                # --- Binary DNA Preview ---
-                bin_dna = gen.genome_to_binary(self.selected_agent.genome)
-                self.screen.blit(self.small_font.render(f"DNA (bits): {bin_dna[:40]}...", True, (100, 255, 100)), (10, SIM_HEIGHT - 10))
 
             sim_rect = pygame.Rect(SIM_OFFSET_X, SIM_OFFSET_Y, GRID_SIZE*CELL_SIZE, GRID_SIZE*CELL_SIZE); pygame.draw.rect(self.screen, (0, 0, 0), sim_rect)
             ph_view = (self.grid.pheromones * 255).astype(np.uint8)
